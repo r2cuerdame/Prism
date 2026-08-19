@@ -1,5 +1,7 @@
 # GPTBrowser: A New Browser Grammar for the LLM Era
 
+> **GPTBrowser: Generated Personal Territory Browser.**
+>
 > **Chrome renders websites. GPTBrowser renders user intent.**
 
 GPTBrowser is an open-source experiment in redefining the browser for the LLM era. It is not “Chrome with AI,” an assistant sidebar, or an agent that clicks through existing websites on the user's behalf. It starts from a more fundamental question:
@@ -19,6 +21,16 @@ GPTBrowser proposes a different grammar:
 | Browser history | Generated-state history |
 
 The project is intentionally narrow, opinionated, and experimental. Its first audience is people consuming content across the web: watching, reading, browsing, comparing, discovering, and relaxing. It does not aim to replace every browser workflow.
+
+## Generated Personal Territory
+
+The name **GPTBrowser** expands to **Generated Personal Territory Browser**. It describes the product model, not merely the model technology behind it:
+
+- **Generated**: the experience is composed and regenerated for the user's current intent instead of being limited to a publisher's fixed page.
+- **Personal**: source choices, information density, layout, Recipes, and future generations adapt to the user's explicit directions and direct manipulation.
+- **Territory**: the result is a user-shaped space that can span many sources, persist as a Session or Recipe, and evolve without inheriting each site's navigation model.
+
+A Personal Territory is not a claim of ownership over source content, a closed information silo, or an excuse to hide provenance. It is the user's view and arrangement of the web: a living surface whose boundaries, composition, and behavior they can control. Sources retain their identity, attribution, and Original links while GPTBrowser provides the territory in which they are experienced together.
 
 ## Core hypothesis
 
@@ -456,7 +468,7 @@ If a feature mainly restores URLs, tabs, site UI, or compatibility as the center
 
 ## The statement
 
-GPTBrowser is an attempt to invent a possible new browser grammar, not to decorate the old one.
+GPTBrowser is an attempt to invent a possible new browser grammar, not to decorate the old one. Its Generated Personal Territory turns a momentary intent into a space the user can directly shape, revisit, and regenerate.
 
 The web remains the world's source layer. GPTBrowser adds an intent layer above it: one that can gather, normalize, compose, explain, regenerate, and learn from direct human shaping. The project succeeds if browsing content begins to feel less like operating websites and more like forming a living view of what the user wants now.
 
