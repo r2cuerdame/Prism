@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -12,7 +12,7 @@ describe('settingsStore', () => {
   it('returns defaults when no file exists', async () => {
     const store = createSettingsStore(await tmpDir());
     expect(await store.get()).toEqual({
-      plannerModel: 'claude-opus-5',
+      plannerModel: 'gpt-5.5',
       autoUpdate: true,
       locale: 'ko'
     });
@@ -21,21 +21,21 @@ describe('settingsStore', () => {
   it('merges patches and persists', async () => {
     const dir = await tmpDir();
     const store = createSettingsStore(dir);
-    const after = await store.set({ anthropicApiKey: 'sk-test', locale: 'en' });
-    expect(after.anthropicApiKey).toBe('sk-test');
+    const after = await store.set({ openaiApiKey: 'sk-test', locale: 'en' });
+    expect(after.openaiApiKey).toBe('sk-test');
     expect(after.locale).toBe('en');
-    expect(after.plannerModel).toBe('claude-opus-5');
+    expect(after.plannerModel).toBe('gpt-5.5');
     // new instance reads persisted state
     const reread = await createSettingsStore(dir).get();
     expect(reread).toEqual(after);
   });
 
-  it('anthropicApiKey: null deletes the key', async () => {
+  it('openaiApiKey: null deletes the key', async () => {
     const store = createSettingsStore(await tmpDir());
-    await store.set({ anthropicApiKey: 'sk-test' });
-    const after = await store.set({ anthropicApiKey: null });
-    expect('anthropicApiKey' in after).toBe(false);
-    expect((await store.get()).anthropicApiKey).toBeUndefined();
+    await store.set({ openaiApiKey: 'sk-test' });
+    const after = await store.set({ openaiApiKey: null });
+    expect('openaiApiKey' in after).toBe(false);
+    expect((await store.get()).openaiApiKey).toBeUndefined();
   });
 
   it('undefined patch values do not clobber existing settings', async () => {
@@ -51,7 +51,7 @@ describe('settingsStore', () => {
     const file = path.join(dir, 'settings.json');
     await fs.writeFile(file, 'not-json', 'utf8');
     const store = createSettingsStore(dir);
-    expect((await store.get()).plannerModel).toBe('claude-opus-5');
+    expect((await store.get()).plannerModel).toBe('gpt-5.5');
     expect(await fs.readFile(`${file}.bak`, 'utf8')).toBe('not-json');
   });
 });

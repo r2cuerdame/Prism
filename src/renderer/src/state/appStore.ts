@@ -71,6 +71,7 @@ class AppStore {
   private state: AppState = initialState;
   private listeners = new Set<Listener>();
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  private persistTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private initialized = false;
 
   get = (): AppState => this.state;
@@ -182,7 +183,36 @@ class AppStore {
       const snap = nextHistory.snapshots[nextHistory.snapshots.length - 1];
       if (snap) void window.gptb.sessionsSaveSnapshot(snap).catch(() => undefined);
       void this.refreshArchive();
+    } else {
+      // Direct manipulation and language edits are part of the session too —
+      // persist them so history survives a restart, not just regenerations.
+      this.persistEditsSoon(sessionId);
     }
+  }
+
+  /** Debounced snapshot of the current (edited) state, replacing the last one. */
+  private persistEditsSoon(sessionId: string): void {
+    const pending = this.persistTimers.get(sessionId);
+    if (pending) clearTimeout(pending);
+    this.persistTimers.set(
+      sessionId,
+      setTimeout(() => {
+        this.persistTimers.delete(sessionId);
+        const entry = this.state.sessions[sessionId];
+        if (!entry) return;
+        const state = entry.history.present;
+        if (!state.plan) return;
+        void window.gptb
+          .sessionsSaveSnapshot({
+            planId: state.plan.id,
+            at: state.updatedAt,
+            label: '편집됨',
+            state
+          })
+          .then(() => this.refreshArchive())
+          .catch(() => undefined);
+      }, 1500)
+    );
   }
 
   undo(): void {
@@ -226,10 +256,15 @@ class AppStore {
     return Object.values(state.items).filter((i) => ids.has(i.id));
   }
 
-  async generate(rawInput: string | null, recipe?: Recipe): Promise<void> {
-    const act = this.active();
-    if (!act) return;
-    const state = act.entry.history.present;
+  /**
+   * `sessionId` pins the target so a generation triggered from session A never
+   * lands on session B if the user switches while the request is in flight.
+   */
+  async generate(rawInput: string | null, recipe?: Recipe, sessionId?: string): Promise<void> {
+    const sid = sessionId ?? this.state.activeId;
+    const entry = sid ? this.state.sessions[sid] : undefined;
+    if (!sid || !entry) return;
+    const state = entry.history.present;
     const prior: InterpretedIntent | null = recipe
       ? {
           goal: recipe.intentTemplate,
@@ -245,7 +280,6 @@ class AppStore {
       this.toast('재생성할 의도가 아직 없어요. 먼저 의도를 입력해 주세요.');
       return;
     }
-    const sid = act.id;
     this.dispatchTo(sid, { type: 'set_status', status: 'planning' }, { silent: true });
     this.patchEntry(sid, { progress: 'interpreting' });
     const res = await window.gptb.generate({
@@ -255,7 +289,15 @@ class AppStore {
       preserved: { dockedBlocks: this.dockedBlocks(state) },
       hints: state.compositionHints,
       keepItems: this.keepItems(state),
-      recipeContext: recipe ? { recipeId: recipe.id, name: recipe.name } : null
+      recipeContext: recipe
+        ? {
+            recipeId: recipe.id,
+            name: recipe.name,
+            // The saved shape guides composition; content is always fresh.
+            layoutTemplate: recipe.layoutTemplate,
+            density: recipe.compositionPreferences.density
+          }
+        : null
     });
     this.patchEntry(sid, { progress: null, reports: res.reports, issues: res.issues });
     if (!res.ok || !res.plan) {
@@ -270,7 +312,11 @@ class AppStore {
     if (res.intent) {
       this.dispatchTo(sid, { type: 'add_intent', intent: res.intent }, { silent: true });
     }
-    this.dispatchTo(sid, { type: 'apply_plan', plan: res.plan, items: res.items }, { silent: true });
+    this.dispatchTo(
+      sid,
+      { type: 'apply_plan', plan: res.plan, items: res.items, provenance: res.provenance },
+      { silent: true }
+    );
     const failedReports = res.reports.filter((r) => !r.ok);
     if (failedReports.length > 0) {
       this.dispatchTo(
@@ -301,13 +347,19 @@ class AppStore {
       sessionId: act.id,
       block,
       interpretation,
-      excludeItemIds: Object.keys(state.items)
+      excludeUrls: Object.values(state.items).map((i) => i.originalUrl)
     });
     if (!res.ok || !res.block) {
       this.toast(res.error ?? '블록 재생성에 실패했어요.');
       return;
     }
-    this.dispatchTo(act.id, { type: 'replace_block', blockId, block: res.block, items: res.items });
+    this.dispatchTo(act.id, {
+      type: 'replace_block',
+      blockId,
+      block: res.block,
+      items: res.items,
+      provenance: res.provenance
+    });
     this.toast('블록을 새로운 콘텐츠로 재생성했어요.');
   }
 
@@ -360,7 +412,7 @@ class AppStore {
       this.toast('페이지를 편집했어요.');
       return;
     }
-    if (this.state.settings?.hasApiKey) {
+    if (this.state.settings && this.state.settings.authMethod !== 'none') {
       const res = await window.gptb.interpretEdit({ utterance, digest: this.digest(state) });
       if (res.ok && res.commands.length > 0) {
         for (const cmd of res.commands) this.dispatchTo(sid, cmd);
@@ -368,7 +420,57 @@ class AppStore {
         return;
       }
     }
-    await this.generate(utterance);
+    await this.generate(utterance, undefined, sid);
+  }
+
+  /**
+   * Session tuning: free text that changes THIS session right now and keeps
+   * applying to its future generations. Unlike the composer it never starts a
+   * new intent — a tuning note always lands on the session it was typed into.
+   */
+  async tuneSession(text: string, opts?: { regenerate?: boolean }): Promise<void> {
+    const act = this.active();
+    if (!act) return;
+    const note = text.trim();
+    if (note === '') return;
+    const sid = act.id;
+    const state = act.entry.history.present;
+
+    // Remember it first, so it survives regeneration even if nothing on the
+    // current page can change right now.
+    this.dispatchTo(sid, { type: 'add_hint_note', note }, { silent: true });
+
+    let applied = false;
+    if (state.plan && state.plan.blocks.length > 0) {
+      const ruleCommands = parseEditRules(note, state);
+      if (ruleCommands && ruleCommands.length > 0) {
+        for (const cmd of ruleCommands) this.dispatchTo(sid, cmd);
+        applied = true;
+      } else if (this.state.settings && this.state.settings.authMethod !== 'none') {
+        const res = await window.gptb.interpretEdit({ utterance: note, digest: this.digest(state) });
+        if (res.ok && res.commands.length > 0) {
+          for (const cmd of res.commands) this.dispatchTo(sid, cmd);
+          applied = true;
+        }
+      }
+    }
+
+    if (opts?.regenerate === true) {
+      await this.generate(null, undefined, sid);
+      this.toast(`튜닝을 반영해 다시 구성했어요: "${note}"`);
+      return;
+    }
+    this.toast(
+      applied
+        ? '튜닝을 지금 페이지에 적용했어요. 다음 재생성에도 계속 반영돼요.'
+        : '튜닝으로 기억했어요. 재생성하면 이 지시가 반영돼요.'
+    );
+  }
+
+  removeTuningNote(note: string): void {
+    const act = this.active();
+    if (!act) return;
+    this.dispatchTo(act.id, { type: 'remove_hint_note', note }, { silent: true });
   }
 
   // ── Recipes ──────────────────────────────────────────────────────────
@@ -410,9 +512,9 @@ class AppStore {
   }
 
   async runRecipe(recipe: Recipe): Promise<void> {
-    this.newSession();
-    this.dispatch({ type: 'rename_session', title: recipe.name }, { silent: true });
-    await this.generate(recipe.intentTemplate, recipe);
+    const sid = this.newSession();
+    this.dispatchTo(sid, { type: 'rename_session', title: recipe.name }, { silent: true });
+    await this.generate(recipe.intentTemplate, recipe, sid);
   }
 
   async removeRecipe(id: string): Promise<void> {
@@ -459,6 +561,12 @@ class AppStore {
   }
 
   async openArchivedSession(sessionId: string): Promise<void> {
+    // Already open in memory: just focus it. Rebuilding from the last saved
+    // snapshot would throw away live edits and the undo stack.
+    if (this.state.sessions[sessionId]) {
+      this.set({ activeId: sessionId, panel: null });
+      return;
+    }
     const snapshots = await window.gptb.sessionsLoad(sessionId);
     const latest = snapshots[snapshots.length - 1];
     if (!latest) {
@@ -485,6 +593,18 @@ class AppStore {
     const settings = await window.gptb.settingsSet(patch);
     this.set({ settings });
     this.toast('설정을 저장했어요.');
+  }
+
+  async refreshAuth(): Promise<void> {
+    const settings = await window.gptb.authStatus();
+    this.set({ settings });
+  }
+
+  async loginOauth(): Promise<void> {
+    this.toast('브라우저에서 Claude 계정 로그인을 진행해 주세요…');
+    const res = await window.gptb.authLogin();
+    this.set({ settings: res.settings });
+    this.toast(res.message);
   }
 
   async checkUpdates(): Promise<void> {

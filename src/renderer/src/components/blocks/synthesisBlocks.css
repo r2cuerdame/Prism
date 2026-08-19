@@ -1,0 +1,208 @@
+/* Styles for the cross-source synthesis blocks: synthesis_brief, topic_cluster.
+   Shared classes gv-block-empty / gv-src-chip live in the global block styles. */
+
+/* ---------- synthesis_brief ---------- */
+
+.gv-syn-brief {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--gv-accent-soft, rgba(124, 154, 255, 0.14));
+  border-left: 3px solid var(--gv-accent, #4f7cff);
+  border-radius: var(--gv-radius, 8px);
+}
+
+.gv-syn-caption {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gv-accent, #4f7cff);
+}
+
+.gv-syn-points {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gv-syn-point {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--gv-text, #1c1f24);
+}
+.gv-syn-point::marker {
+  color: var(--gv-accent, #4f7cff);
+}
+
+.gv-syn-cite {
+  display: inline-block;
+  vertical-align: super;
+  margin-left: 4px;
+  padding: 1px 5px;
+  border: 1px solid var(--gv-border, #d7dae0);
+  border-radius: 999px;
+  background: var(--gv-bg-elev, transparent);
+  color: var(--gv-accent, #4f7cff);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.gv-syn-cite:hover {
+  background: var(--gv-accent, #4f7cff);
+  border-color: var(--gv-accent, #4f7cff);
+  color: var(--gv-on-accent, #fff);
+}
+
+.gv-syn-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--gv-text-muted, #8a8f98);
+}
+
+.gv-syn-inspect {
+  border: 1px solid var(--gv-border-strong, #b7bcc5);
+  border-radius: var(--gv-radius-sm, 6px);
+  background: none;
+  color: var(--gv-text-dim, #5b616b);
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.gv-syn-inspect:hover {
+  border-color: var(--gv-accent, #4f7cff);
+  color: var(--gv-accent, #4f7cff);
+  background: var(--gv-bg-hover, transparent);
+}
+
+/* ---------- topic_cluster ---------- */
+
+.gv-topic-cluster {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gv-tc-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gv-tc-topic {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--gv-text, #1c1f24);
+}
+
+.gv-tc-angle {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--gv-text-dim, #5b616b);
+}
+
+.gv-tc-sources {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--gv-text-muted, #8a8f98);
+}
+
+.gv-tc-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--gv-surface-muted, transparent);
+  border: 1px solid var(--gv-border, #d7dae0);
+  border-radius: var(--gv-radius-sm, 6px);
+}
+
+.gv-tc-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.gv-tc-thumb {
+  width: 96px;
+  height: 60px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: var(--gv-radius-sm, 6px);
+  background: var(--gv-chip-bg, #eceef1);
+}
+
+.gv-tc-main {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.gv-tc-title-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.gv-tc-kind {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid var(--gv-border, #d7dae0);
+  border-radius: 4px;
+  background: var(--gv-chip-bg, transparent);
+  color: var(--gv-text-muted, #6b7280);
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+
+.gv-tc-title {
+  border: none;
+  background: none;
+  padding: 0;
+  text-align: left;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--gv-text, #1c1f24);
+  cursor: pointer;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.gv-tc-title:hover {
+  color: var(--gv-accent, #4f7cff);
+}
+
+.gv-tc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--gv-text-muted, #8a8f98);
+}
+
+.gv-tc-open {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--gv-accent, #4f7cff);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.gv-tc-open:hover {
+  text-decoration: underline;
+}

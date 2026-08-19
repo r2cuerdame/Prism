@@ -54,6 +54,12 @@ function halvedMaxItems(block: ComponentBlock): number {
   return Math.max(1, Math.floor(cur / 2));
 }
 
+function grownMaxItems(block: ComponentBlock): number {
+  const cur = typeof block.props.maxItems === 'number' ? block.props.maxItems : 6;
+  const cap = getCatalogEntry(block.componentType)?.maxItems ?? 12;
+  return Math.min(cap, Math.max(cur + 2, cur * 2));
+}
+
 function spanBounds(componentType: string): { min: number; max: number } {
   const entry = getCatalogEntry(componentType);
   return { min: entry?.minSpan ?? 1, max: entry?.maxSpan ?? 12 };
@@ -89,7 +95,17 @@ export function parseEditRules(utterance: string, state: SessionState): SessionC
     return cmds;
   }
   if (kind && kind.mixKind && MORE_RE.test(u)) {
-    return [{ type: 'adjust_mix', kind: kind.mixKind, direction: 'more' }];
+    // adjust_mix alone only shapes the NEXT generation, which reads as "nothing
+    // happened". Grow the matching list blocks now so the change is visible.
+    const cmds: SessionCommand[] = [
+      { type: 'adjust_mix', kind: kind.mixKind, direction: 'more' }
+    ];
+    for (const b of targets) {
+      if (b.componentType === 'article_list' || b.componentType === 'community_posts') {
+        cmds.push({ type: 'set_block_props', blockId: b.id, props: { maxItems: grownMaxItems(b) } });
+      }
+    }
+    return cmds;
   }
 
   if (REMOVE_RE.test(u)) {

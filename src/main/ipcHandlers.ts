@@ -1,4 +1,4 @@
-import { app, ipcMain, shell, type BrowserWindow } from 'electron';
+﻿import { app, ipcMain, shell, type BrowserWindow } from 'electron';
 import { join } from 'path';
 import { z } from 'zod';
 import {
@@ -15,6 +15,10 @@ import {
   type UpdaterStatus
 } from '@shared/ipc';
 import { newId, nowIso } from '@shared/domain/ids';
+import { InterpretedIntentSchema } from '@shared/domain/intent';
+import { ComponentBlockSchema } from '@shared/domain/layoutPlan';
+import { SourceItemSchema } from '@shared/domain/sourceItem';
+import { interleaveBySource } from '@shared/planner/crossSource';
 import { RecipeSchema } from '@shared/domain/recipe';
 import { PreferenceSignalSchema } from '@shared/domain/preference';
 import { GeneratedSnapshotSchema } from '@shared/domain/session';
@@ -35,12 +39,78 @@ import { createRecipeStore } from './store/recipeStore';
 import { createPreferenceStore } from './store/preferenceStore';
 import { createSessionArchive } from './store/sessionArchive';
 import { createSettingsStore } from './store/settingsStore';
-import { createAnthropicClient } from './llm/anthropicClient';
+import { createOpenAIClient } from './llm/openaiClient';
+import { detectAuth, runOauthLogin } from './llm/gptAuth';
 import { interpretIntentLlm } from './llm/llmIntent';
 import { planLayoutLlm } from './llm/llmPlanner';
 import { interpretEditLlm } from './llm/llmEditor';
 import { openOriginalWindow, isSafeHttpUrl } from './originalViewer';
 import { createUpdater, type UpdaterHandle } from './updater';
+
+/**
+ * Renderer payload schemas. The renderer is a trust boundary like any other —
+ * everything crossing it is parsed before the planner/adapter layer sees it.
+ */
+const CompositionHintsShape = z.object({
+  mix: z.object({
+    video: z.enum(['more', 'less']).optional(),
+    article: z.enum(['more', 'less']).optional(),
+    post: z.enum(['more', 'less']).optional(),
+    headline: z.enum(['more', 'less']).optional()
+  }),
+  notes: z.array(z.string())
+});
+
+const GenerateRequestSchema = z.object({
+  sessionId: z.string().min(1).max(200),
+  rawInput: z.string().max(4000).nullable(),
+  priorInterpretation: InterpretedIntentSchema.nullable(),
+  preserved: z.object({ dockedBlocks: z.array(ComponentBlockSchema).max(50) }),
+  hints: CompositionHintsShape,
+  keepItems: z.array(SourceItemSchema).max(300),
+  recipeContext: z
+    .object({
+      recipeId: z.string(),
+      name: z.string(),
+      layoutTemplate: z
+        .array(
+          z.object({ componentType: z.string(), span: z.number().int().min(1).max(12) })
+        )
+        .max(30),
+      density: z.enum(['compact', 'comfortable'])
+    })
+    .nullable()
+});
+
+const RegenerateBlockRequestSchema = z.object({
+  sessionId: z.string().min(1).max(200),
+  block: ComponentBlockSchema,
+  interpretation: InterpretedIntentSchema,
+  excludeUrls: z.array(z.string()).max(500)
+});
+
+const InterpretEditRequestSchema = z.object({
+  utterance: z.string().min(1).max(2000),
+  digest: z.object({
+    sessionId: z.string(),
+    goal: z.string(),
+    blocks: z
+      .array(
+        z.object({
+          id: z.string(),
+          index: z.number().int().min(0),
+          componentType: z.string(),
+          title: z.string(),
+          kinds: z.array(z.string()),
+          span: z.number().int(),
+          docked: z.boolean(),
+          locked: z.boolean(),
+          itemTitles: z.array(z.string())
+        })
+      )
+      .max(60)
+  })
+});
 
 const ADAPTERS: SourceAdapter[] = [
   youtubeAdapter,
@@ -68,15 +138,36 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
   };
   const progress = (p: GenerateProgress): void => send(IPC.evGenerateProgress, p);
 
-  const llm = async (): Promise<{ client: ReturnType<typeof createAnthropicClient>; model: string }> => {
+  const llm = async (): Promise<{ client: ReturnType<typeof createOpenAIClient>; model: string }> => {
     const s = await settings.get();
-    return { client: createAnthropicClient(s.anthropicApiKey), model: s.plannerModel };
+    const view = await settingsView();
+    if (view.authMethod === 'none') return { client: null, model: s.plannerModel };
+    // A ChatGPT sign-in can supply the key, so fall back to what auth derived.
+    const key = s.openaiApiKey ?? authCache?.derivedKey;
+    return { client: createOpenAIClient(key), model: s.plannerModel };
   };
 
-  const settingsView = async (): Promise<SettingsView> => {
+  let authCache: {
+    method: SettingsView['authMethod'];
+    detail: string;
+    derivedKey?: string;
+    at: number;
+  } | null = null;
+  const settingsView = async (forceAuthProbe = false): Promise<SettingsView> => {
     const s = await settings.get();
+    if (forceAuthProbe || !authCache || Date.now() - authCache.at > 60_000) {
+      const detected = await detectAuth(s.openaiApiKey);
+      authCache = {
+        method: detected.method,
+        detail: detected.detail,
+        derivedKey: detected.derivedKey,
+        at: Date.now()
+      };
+    }
     return {
-      hasApiKey: Boolean(s.anthropicApiKey ?? process.env.ANTHROPIC_API_KEY),
+      hasApiKey: Boolean(s.openaiApiKey ?? process.env.OPENAI_API_KEY),
+      authMethod: authCache.method,
+      authDetail: authCache.detail,
       plannerModel: s.plannerModel,
       autoUpdate: s.autoUpdate,
       locale: s.locale,
@@ -84,7 +175,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
     };
   };
 
-  ipcMain.handle(IPC.generate, async (_e, raw: GenerateRequest): Promise<GenerateResponse> => {
+  ipcMain.handle(IPC.generate, async (_e, raw: unknown): Promise<GenerateResponse> => {
     const fail = (error: string): GenerateResponse => ({
       ok: false,
       intent: null,
@@ -96,8 +187,10 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
       issues: [],
       error
     });
+    const parsedReq = GenerateRequestSchema.safeParse(raw);
+    if (!parsedReq.success) return fail('요청 형식이 올바르지 않아요.');
+    const req: GenerateRequest = parsedReq.data;
     try {
-      const req = raw;
       const { client, model } = await llm();
       const prefSummary = await prefs.summarizeForPlanner();
 
@@ -141,7 +234,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
         sessionId: req.sessionId,
         preserved: { dockedBlocks: req.preserved.dockedBlocks },
         hints: req.hints,
-        prefSummary: prefSummary || undefined
+        prefSummary: prefSummary || undefined,
+        recipeShape: req.recipeContext
+          ? {
+              name: req.recipeContext.name,
+              layoutTemplate: req.recipeContext.layoutTemplate,
+              density: req.recipeContext.density
+            }
+          : undefined
       };
       let planResult = client ? await planLayoutLlm(client, model, planReq) : null;
       const issues: string[] = [];
@@ -163,14 +263,19 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
         issues
       };
     } catch (err) {
-      progress({ sessionId: raw.sessionId, phase: 'error', detail: String(err) });
+      progress({ sessionId: req.sessionId, phase: 'error', detail: String(err) });
       return fail(err instanceof Error ? err.message : '알 수 없는 오류가 발생했어요.');
     }
   });
 
   ipcMain.handle(
     IPC.regenerateBlock,
-    async (_e, req: RegenerateBlockRequest): Promise<RegenerateBlockResponse> => {
+    async (_e, rawReq: unknown): Promise<RegenerateBlockResponse> => {
+      const parsed = RegenerateBlockRequestSchema.safeParse(rawReq);
+      if (!parsed.success) {
+        return { ok: false, block: null, items: [], provenance: [], error: '요청 형식이 올바르지 않아요.' };
+      }
+      const req: RegenerateBlockRequest = parsed.data;
       try {
         const entry = getCatalogEntry(req.block.componentType);
         if (!entry) return { ok: false, block: null, items: [], provenance: [], error: '알 수 없는 컴포넌트예요.' };
@@ -188,14 +293,22 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
         const gathered = await gatherSources(req.interpretation, adapters, ctx, {
           totalLimit: 30
         });
-        const exclude = new Set(req.excludeItemIds);
+        // Identity across fetches is the original URL — item ids are minted
+        // fresh on every gather, so excluding by id would exclude nothing.
+        const exclude = new Set(req.excludeUrls);
         const fresh = gathered.items.filter(
-          (i) => !exclude.has(i.id) && (kinds === null || kinds.includes(i.kind))
+          (i) => !exclude.has(i.originalUrl) && (kinds === null || kinds.includes(i.kind))
         );
         const want = Math.max(entry.minItems, Math.min(entry.maxItems, req.block.sourceItemRefs.length || entry.maxItems));
-        const picked = fresh.slice(0, want);
+        const picked = interleaveBySource(fresh).slice(0, want);
         if (picked.length < entry.minItems) {
-          return { ok: false, block: null, items: [], provenance: [], error: '새 콘텐츠를 충분히 찾지 못했어요.' };
+          return {
+            ok: false,
+            block: null,
+            items: [],
+            provenance: [],
+            error: '아직 새로운 콘텐츠가 없어요. 잠시 후 다시 시도해 주세요.'
+          };
         }
         return {
           ok: true,
@@ -220,14 +333,24 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
 
   ipcMain.handle(
     IPC.interpretEdit,
-    async (_e, req: InterpretEditRequest): Promise<InterpretEditResponse> => {
+    async (_e, rawReq: unknown): Promise<InterpretEditResponse> => {
+      const parsed = InterpretEditRequestSchema.safeParse(rawReq);
+      if (!parsed.success) {
+        return {
+          ok: false,
+          commands: [],
+          explanation: '요청 형식이 올바르지 않아요.',
+          source: 'none'
+        };
+      }
+      const req: InterpretEditRequest = parsed.data;
       const { client, model } = await llm();
       if (!client) {
         return {
           ok: false,
           commands: [],
           explanation:
-            'API 키가 설정되지 않아 고급 자연어 편집을 사용할 수 없어요. 설정에서 Anthropic API 키를 추가해 주세요.',
+            '로그인되어 있지 않아 고급 자연어 편집을 사용할 수 없어요. 설정에서 로그인해 주세요.',
           source: 'none'
         };
       }
@@ -263,9 +386,16 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
       ...(patch.plannerModel !== undefined ? { plannerModel: patch.plannerModel } : {}),
       ...(patch.autoUpdate !== undefined ? { autoUpdate: patch.autoUpdate } : {}),
       ...(patch.locale !== undefined ? { locale: patch.locale } : {}),
-      ...(patch.anthropicApiKey !== undefined ? { anthropicApiKey: patch.anthropicApiKey } : {})
+      ...(patch.openaiApiKey !== undefined ? { openaiApiKey: patch.openaiApiKey } : {})
     });
-    return settingsView();
+    return settingsView(true);
+  });
+
+  ipcMain.handle(IPC.authStatus, () => settingsView(true));
+  ipcMain.handle(IPC.authLogin, async () => {
+    const result = await runOauthLogin();
+    const view = await settingsView(true);
+    return { ok: result.ok, message: result.message, settings: view };
   });
 
   const updater = createUpdater({

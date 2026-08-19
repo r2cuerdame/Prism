@@ -4,10 +4,8 @@
     <meta charset="UTF-8" />
     <title>GPTBrowser</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; media-src https:; frame-src https://www.youtube-nocookie.com https://www.youtube.com; connect-src 'self' ws: http://localhost:*; font-src 'self' data:; object-src 'none'; base-uri 'self'"
-    />
+    <!-- CSP meta tag is injected by the csp vite plugin in electron.vite.config.ts,
+         strict in production builds and relaxed only for the dev HMR server. -->
   </head>
   <body>
     <div id="root"></div>

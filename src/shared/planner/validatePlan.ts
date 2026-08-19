@@ -81,6 +81,47 @@ function salvagePlan(raw: unknown, sessionId: string, issues: string[]): LayoutP
   };
 }
 
+/**
+ * Rewrite positional citations (synthesis_brief points) after refs were
+ * filtered, so each bullet still points at the item it was written from.
+ * Bullets whose evidence was entirely dropped lose their citations.
+ */
+function remapCitations(
+  block: ComponentBlock,
+  oldRefs: string[],
+  newRefs: string[],
+  issues: string[]
+): void {
+  const rawPoints = block.props.points;
+  if (!Array.isArray(rawPoints)) return;
+  const newIndexOf = new Map<string, number>();
+  newRefs.forEach((ref, i) => {
+    if (!newIndexOf.has(ref)) newIndexOf.set(ref, i);
+  });
+
+  let dropped = false;
+  const points = rawPoints.map((p) => {
+    if (p === null || typeof p !== 'object') return p;
+    const point = p as { text?: unknown; cites?: unknown };
+    if (!Array.isArray(point.cites)) return p;
+    const cites: number[] = [];
+    for (const c of point.cites) {
+      if (typeof c !== 'number') continue;
+      const ref = oldRefs[Math.trunc(c)];
+      const next = ref === undefined ? undefined : newIndexOf.get(ref);
+      if (next === undefined) {
+        dropped = true;
+        continue;
+      }
+      if (!cites.includes(next)) cites.push(next);
+    }
+    return { ...point, cites };
+  });
+
+  block.props = { ...block.props, points };
+  if (dropped) issues.push(`근거가 사라진 인용을 정리했습니다: ${block.componentType}`);
+}
+
 function repairBlock(
   block: ComponentBlock,
   itemById: Map<string, SourceItem>,
@@ -109,6 +150,7 @@ function repairBlock(
     }
   } else {
     const before = b.sourceItemRefs.length;
+    const originalRefs = b.sourceItemRefs;
     let refs = b.sourceItemRefs.filter((ref) => {
       const item = itemById.get(ref);
       if (!item) return false;
@@ -120,6 +162,11 @@ function repairBlock(
     if (refs.length > entry.maxItems) {
       refs = refs.slice(0, entry.maxItems);
       issues.push(`항목 수를 최대치(${entry.maxItems})로 줄였습니다: ${b.componentType}`);
+    }
+    // Citations are positional: dropping a ref shifts every later index, so a
+    // stale index would credit the wrong source. Remap, never renumber blindly.
+    if (refs.length !== originalRefs.length) {
+      remapCitations(b, originalRefs, refs, issues);
     }
     b.sourceItemRefs = refs;
     if (refs.length < entry.minItems) {

@@ -1,62 +1,69 @@
-import { useState, type ReactElement } from 'react';
+﻿import { useState, type ReactElement } from 'react';
 import { appStore, useAppState } from '@renderer/state/appStore';
 
-const MODELS = ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'];
+const AUTH_LABEL: Record<string, string> = {
+  'api-key': '로그인됨 (API 키)',
+  'env-key': '로그인됨 (환경 변수)',
+  oauth: '로그인됨',
+  none: '로그인 안 됨 — 오프라인 구성으로 동작 중'
+};
 
 export default function SettingsPanel(): ReactElement {
   const state = useAppState();
   const s = state.settings;
   const [keyDraft, setKeyDraft] = useState('');
+  // OAuth is the only primary path; the key input stays behind a disclosure.
+  const [showKey, setShowKey] = useState(false);
 
   if (!s) return <p className="panel-note">설정을 불러오는 중…</p>;
 
   return (
     <div className="settings-panel">
-      <h4>LLM 플래너</h4>
+      <h4>계정</h4>
+      <p className={`auth-status auth-status--${s.authMethod}`}>
+        {s.authMethod === 'none' ? '○' : '●'} {AUTH_LABEL[s.authMethod]}
+      </p>
+      {s.authDetail !== '' && <p className="panel-note">{s.authDetail}</p>}
       <p className="panel-note">
-        {s.hasApiKey
-          ? 'API 키가 설정되어 있어 LLM이 페이지를 계획해요.'
-          : 'API 키가 없으면 오프라인 휴리스틱 플래너로 동작해요. 키를 넣으면 의도 해석과 페이지 구성이 훨씬 좋아져요.'}
+        {s.authMethod === 'none'
+          ? '로그인하면 여러 소스를 가로질러 합성한 페이지를 만들어요. 로그인 전에는 오프라인 구성으로 동작해요.'
+          : '여러 소스를 가로질러 합성한 페이지를 만들고 있어요.'}
       </p>
       <div className="settings-row">
-        <input
-          type="password"
-          placeholder={s.hasApiKey ? '새 Anthropic API 키로 교체…' : 'Anthropic API 키 (sk-ant-…)'}
-          value={keyDraft}
-          onChange={(e) => setKeyDraft(e.target.value)}
-        />
-        <button
-          disabled={keyDraft.trim() === ''}
-          onClick={() => {
-            void appStore.saveSettings({ anthropicApiKey: keyDraft.trim() });
-            setKeyDraft('');
-          }}
-        >
-          저장
+        <button className="auth-login-btn" onClick={() => void appStore.loginOauth()}>
+          {s.authMethod === 'none' ? 'OAuth로 로그인' : '다시 로그인'}
         </button>
-        {s.hasApiKey && (
-          <button onClick={() => void appStore.saveSettings({ anthropicApiKey: null })}>
-            키 삭제
+        <button title="로그인 상태 다시 확인" onClick={() => void appStore.refreshAuth()}>
+          상태 새로고침
+        </button>
+      </div>
+      <button className="settings-disclosure" onClick={() => setShowKey((v) => !v)}>
+        {showKey ? '▾' : '▸'} 고급: API 키로 직접 연결
+      </button>
+      {showKey && (
+        <div className="settings-row">
+          <input
+            type="password"
+            placeholder={s.hasApiKey ? '새 API 키로 교체…' : 'API 키'}
+            value={keyDraft}
+            onChange={(e) => setKeyDraft(e.target.value)}
+          />
+          <button
+            disabled={keyDraft.trim() === ''}
+            onClick={() => {
+              void appStore.saveSettings({ openaiApiKey: keyDraft.trim() });
+              setKeyDraft('');
+            }}
+          >
+            저장
           </button>
-        )}
-      </div>
-      <div className="settings-row">
-        <label htmlFor="model-select">모델</label>
-        <select
-          id="model-select"
-          value={s.plannerModel}
-          onChange={(e) => void appStore.saveSettings({ plannerModel: e.target.value })}
-        >
-          {MODELS.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-          {!MODELS.includes(s.plannerModel) && (
-            <option value={s.plannerModel}>{s.plannerModel}</option>
+          {s.hasApiKey && (
+            <button onClick={() => void appStore.saveSettings({ openaiApiKey: null })}>
+              키 삭제
+            </button>
           )}
-        </select>
-      </div>
+        </div>
+      )}
       <h4>업데이트</h4>
       <div className="settings-row">
         <label>

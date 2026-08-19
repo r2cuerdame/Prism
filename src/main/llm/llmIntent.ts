@@ -1,23 +1,23 @@
-import type Anthropic from '@anthropic-ai/sdk';
+import type OpenAI from 'openai';
 import { z } from 'zod';
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
-import {
-  InterpretedIntentSchema,
-  type InterpretedIntent
-} from '@shared/domain/intent';
+import { zodResponseFormat } from 'openai/helpers/zod';
+import { InterpretedIntentSchema, type InterpretedIntent } from '@shared/domain/intent';
 
-/** Flat output schema kept simple for constrained generation. */
+/**
+ * Flat output schema. Structured outputs are strict: every property must be
+ * required, so optional fields are modelled as nullable instead.
+ */
 const LlmIntentSchema = z.object({
   goal: z.string(),
   topics: z.array(z.string()),
   moods: z.array(z.string()),
   contentBalance: z.object({
-    video: z.number().optional(),
-    article: z.number().optional(),
-    post: z.number().optional(),
-    headline: z.number().optional()
+    video: z.number(),
+    article: z.number(),
+    post: z.number(),
+    headline: z.number()
   }),
-  query: z.string().optional(),
+  query: z.string().nullable(),
   includeSources: z.array(z.string()),
   excludeSources: z.array(z.string()),
   locale: z.enum(['ko', 'en']),
@@ -27,16 +27,15 @@ const LlmIntentSchema = z.object({
 const SYSTEM = `You interpret what a person wants to consume on the web right now, for GPTBrowser (an intent-driven browser). Input can be vague ("심심해"), moody, or precise, in Korean or English. Vague input is VALID — infer a relaxed browsing interpretation, never ask for clarification.
 - topics: short english slugs (ai, gaming, news, dev, tech, science, world, music, ...).
 - moods: short slugs (browse, calm, focus, fun ...).
-- contentBalance: 0..1 desire weight per content kind (video/article/post/headline). Omit kinds you have no signal for.
-- query: only when a concrete search phrase would help source adapters.
-- includeSources/excludeSources: adapter ids or classes (youtube, rss-news, hackernews, lobsters, reddit, video, news, community) ONLY if the user implied them.
+- contentBalance: 0..1 desire weight per content kind (video/article/post/headline). Use 0.4 when you have no signal.
+- query: a concrete search phrase when one would help source adapters, else null.
+- includeSources/excludeSources: adapter ids or classes (youtube, rss-news, hackernews, lobsters, reddit, video, news, community) ONLY if the user implied them, else empty arrays.
 - followUp: true when the input refines the prior interpretation (provided in context).`;
 
-const clamp01 = (n: number | undefined): number | undefined =>
-  n === undefined ? undefined : Math.min(1, Math.max(0, n));
+const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 
 export async function interpretIntentLlm(
-  client: Anthropic,
+  client: OpenAI,
   model: string,
   rawInput: string,
   prior: InterpretedIntent | null,
@@ -49,21 +48,19 @@ export async function interpretIntentLlm(
     ]
       .filter(Boolean)
       .join('\n\n');
-    const response = await client.messages.parse({
+
+    const completion = await client.chat.completions.parse({
       model,
-      max_tokens: 2048,
-      output_config: { format: zodOutputFormat(LlmIntentSchema), effort: 'low' },
-      system: SYSTEM,
       messages: [
-        {
-          role: 'user',
-          content: `${context ? context + '\n\n' : ''}User input: ${rawInput}`
-        }
-      ]
+        { role: 'system', content: SYSTEM },
+        { role: 'user', content: `${context ? context + '\n\n' : ''}User input: ${rawInput}` }
+      ],
+      response_format: zodResponseFormat(LlmIntentSchema, 'interpreted_intent')
     });
-    if (response.stop_reason === 'refusal') return null;
-    const out = response.parsed_output;
+
+    const out = completion.choices[0]?.message.parsed;
     if (!out) return null;
+
     const mapped = InterpretedIntentSchema.safeParse({
       goal: out.goal || rawInput,
       topics: out.topics.slice(0, 8),
@@ -74,7 +71,7 @@ export async function interpretIntentLlm(
         post: clamp01(out.contentBalance.post),
         headline: clamp01(out.contentBalance.headline)
       },
-      query: out.query || undefined,
+      query: out.query ?? undefined,
       sourceHints: {
         include: out.includeSources.slice(0, 6),
         exclude: out.excludeSources.slice(0, 6)

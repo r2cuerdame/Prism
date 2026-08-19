@@ -1,12 +1,15 @@
-import type Anthropic from '@anthropic-ai/sdk';
+import type OpenAI from 'openai';
 import { z } from 'zod';
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
+import { zodResponseFormat } from 'openai/helpers/zod';
 import { newId, nowIso } from '@shared/domain/ids';
 import { catalogForPlanner } from '@shared/catalog/catalog';
+import { getPostPayload } from '@shared/domain/sourceItem';
 import type { PlanRequest, PlanResult } from '@shared/planner/plannerTypes';
 import { validateAndRepairPlan } from '@shared/planner/validatePlan';
 
 const COMPONENT_TYPES = [
+  'synthesis_brief',
+  'topic_cluster',
   'video_player',
   'video_queue',
   'headline_strip',
@@ -19,19 +22,33 @@ const COMPONENT_TYPES = [
   'divider'
 ] as const;
 
-/** Flat block shape for constrained generation; mapped + repaired afterwards. */
+/**
+ * Flat block shape for constrained generation; mapped + repaired afterwards.
+ * Structured outputs are strict — every field is required, so "not applicable"
+ * is expressed as null rather than an absent key.
+ */
 const LlmBlockSchema = z.object({
   componentType: z.enum(COMPONENT_TYPES),
   sourceItemIds: z.array(z.string()),
   span: z.number(),
-  title: z.string().optional(),
-  density: z.enum(['compact', 'comfortable']).optional(),
-  maxItems: z.number().optional(),
-  autoplay: z.boolean().optional(),
-  text: z.string().optional(),
-  level: z.number().optional(),
-  showMeta: z.boolean().optional(),
-  rationale: z.string().optional()
+  title: z.string().nullable(),
+  density: z.enum(['compact', 'comfortable']).nullable(),
+  maxItems: z.number().nullable(),
+  text: z.string().nullable(),
+  /** synthesis_brief: the bullets the planner writes, with citations. */
+  points: z
+    .array(
+      z.object({
+        text: z.string(),
+        /** Indices into this block's sourceItemIds. */
+        cites: z.array(z.number())
+      })
+    )
+    .nullable(),
+  /** topic_cluster: the shared thread and what differs between sources. */
+  topic: z.string().nullable(),
+  angle: z.string().nullable(),
+  rationale: z.string().nullable()
 });
 
 const LlmPlanSchema = z.object({
@@ -39,37 +56,65 @@ const LlmPlanSchema = z.object({
   blocks: z.array(LlmBlockSchema)
 });
 
-const SYSTEM = `You are the layout planner of GPTBrowser. You compose ONE coherent, scrollable generated page from normalized source items, for the user's current intent. You are not a search results page: build something that feels designed for this intent — clear hierarchy, one visual anchor, no clutter.
-Rules:
-- Use ONLY the provided component catalog and ONLY the provided source item ids. Never invent ids.
-- 12-column grid: each block has span (respect catalog min/max). Blocks flow in order; two consecutive blocks with spans summing to 12 sit side by side.
-- Respect the content balance and composition hints (a kind marked 'less' should shrink or disappear; 'more' should grow).
-- Do NOT create blocks for the preserved (docked) blocks listed in context — they will be re-inserted automatically. Avoid reusing their item ids.
+const SYSTEM = `You are the layout planner of GPTBrowser. You compose ONE new page for the user's current intent out of items gathered from many sources. You are NOT building a feed reader and NOT a search results page.
+
+THE ONE RULE THAT MATTERS: the page must read as a single synthesized whole, not as one section per website. A page where "here is the Hacker News list, here is the newspaper list, here is the YouTube list" is a FAILURE, even if every block is individually fine. Compose ACROSS sources:
+- Open with ONE synthesis_brief: 2-5 bullets that YOU write, saying what the sources collectively show about this intent — the themes, what several sources agree on, what differs, what is new. Each bullet cites the items it came from (cites = indices into that block's sourceItemRefs), and bullets that describe overlap must cite items from DIFFERENT sources. Never write a bullet that just restates one item's headline.
+- Use topic_cluster blocks for the main threads: one topic, items from at least TWO different sources in the same card (an article + a community thread + a video about the same thing is ideal).
+- Only after that, use the kind-driven blocks (video_player/video_queue, headline_strip, article_list, community_posts) for what remains. When such a block holds several items, INTERLEAVE the sources — never fill one list with items that all come from the same sourceName if other sources are available.
+
+Other rules:
+- Use ONLY the provided component catalog and ONLY the provided source item ids. Never invent ids or content beyond the synthesis text you write.
+- Your synthesis text must be grounded in the item titles/summaries given to you. Do not assert facts they do not support; when unsure, describe the coverage ("여러 소스가 …를 다뤄요") rather than the claim.
+- 12-column grid: each block has span (respect catalog min/max). Blocks flow in order; consecutive spans summing to 12 sit side by side.
+- Respect content balance and composition hints ('less' shrinks or drops that kind; 'more' grows it).
+- Do NOT create blocks for the preserved blocks listed in context — they are re-inserted automatically. Avoid reusing their item ids.
+- If a recipeShape is given, follow its component order and spans as the page's skeleton (it is the user's saved shape) while filling it with the fresh items.
 - Always end with ONE source_list block containing every used item id (provenance is mandatory).
-- Prefer quality over quantity: it is fine to use only the best items. Write short Korean rationale per block and a short Korean pageTitle.
+- Write everything user-visible in Korean (pageTitle, block titles, synthesis points, topic/angle, rationale). Prefer quality over quantity.
 - If items are sparse, compose a smaller good page; if empty, one 'text' block explaining that in Korean.`;
 
 function itemDigest(req: PlanRequest): unknown[] {
-  return req.items.map((i) => ({
-    id: i.id,
-    kind: i.kind,
-    title: i.title.slice(0, 120),
-    source: i.sourceName,
-    publishedAt: i.publishedAt,
-    summary: i.summary?.slice(0, 140)
-  }));
+  return req.items.map((i) => {
+    const post = getPostPayload(i);
+    return {
+      id: i.id,
+      kind: i.kind,
+      title: i.title.slice(0, 140),
+      // Synthesis is written from these two fields, so give the model enough
+      // to say something true about the item.
+      source: i.sourceName,
+      summary: i.summary?.slice(0, 280),
+      publishedAt: i.publishedAt,
+      ...(post ? { points: post.points, comments: post.commentCount } : {})
+    };
+  });
 }
 
 function propsFor(b: z.infer<typeof LlmBlockSchema>): Record<string, unknown> {
   switch (b.componentType) {
-    case 'video_player':
-      return { title: b.title, autoplay: b.autoplay };
+    case 'synthesis_brief':
+      return {
+        title: b.title,
+        points: (b.points ?? [])
+          .filter((p) => typeof p.text === 'string' && p.text.trim() !== '')
+          .map((p) => ({
+            text: p.text.slice(0, 400),
+            cites: p.cites
+              .map((c) => Math.trunc(c))
+              .filter((c) => c >= 0 && c < b.sourceItemIds.length)
+          }))
+          .slice(0, 6)
+      };
+    case 'topic_cluster':
+      return {
+        topic: (b.topic ?? b.title ?? '').slice(0, 120),
+        angle: b.angle === null ? undefined : b.angle.slice(0, 300)
+      };
     case 'article_list':
       return { title: b.title, density: b.density, maxItems: b.maxItems };
-    case 'community_posts':
-      return { title: b.title, showMeta: b.showMeta };
     case 'heading':
-      return { text: b.text ?? b.title ?? '', level: b.level };
+      return { text: b.text ?? b.title ?? '' };
     case 'text':
       return { text: b.text ?? '' };
     case 'divider':
@@ -79,11 +124,12 @@ function propsFor(b: z.infer<typeof LlmBlockSchema>): Record<string, unknown> {
   }
 }
 
+/** null/undefined props fall back to the catalog defaults downstream. */
 const strip = (o: Record<string, unknown>): Record<string, unknown> =>
-  Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+  Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null));
 
 export async function planLayoutLlm(
-  client: Anthropic,
+  client: OpenAI,
   model: string,
   req: PlanRequest
 ): Promise<(PlanResult & { pageTitle?: string }) | null> {
@@ -99,17 +145,18 @@ export async function planLayoutLlm(
         itemIds: b.sourceItemRefs
       })),
       compositionHints: req.hints,
-      learnedPreferences: req.prefSummary || undefined
+      learnedPreferences: req.prefSummary || undefined,
+      recipeShape: req.recipeShape
     };
-    const response = await client.messages.parse({
+    const completion = await client.chat.completions.parse({
       model,
-      max_tokens: 8192,
-      output_config: { format: zodOutputFormat(LlmPlanSchema), effort: 'medium' },
-      system: SYSTEM,
-      messages: [{ role: 'user', content: JSON.stringify(context) }]
+      messages: [
+        { role: 'system', content: SYSTEM },
+        { role: 'user', content: JSON.stringify(context) }
+      ],
+      response_format: zodResponseFormat(LlmPlanSchema, 'layout_plan')
     });
-    if (response.stop_reason === 'refusal') return null;
-    const out = response.parsed_output;
+    const out = completion.choices[0]?.message.parsed;
     if (!out || out.blocks.length === 0) return null;
 
     const rawPlan = {
@@ -125,7 +172,7 @@ export async function planLayoutLlm(
         layout: { span: Math.min(12, Math.max(1, Math.round(b.span) || 12)) },
         locked: false,
         docked: false,
-        rationale: b.rationale,
+        rationale: b.rationale ?? undefined,
         state: {}
       })),
       generationScope: 'full' as const,

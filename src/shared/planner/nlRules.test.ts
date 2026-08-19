@@ -39,6 +39,7 @@ function makeState(blocks?: ComponentBlock[]): SessionState {
       plannerMetadata: { planner: 'heuristic', generatedAt: NOW, diagnostics: [] }
     },
     items: {},
+    provenance: {},
     compositionHints: { mix: {}, notes: [] },
     status: 'ready',
     createdAt: NOW,

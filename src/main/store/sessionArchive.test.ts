@@ -65,4 +65,41 @@ describe('sessionArchive', () => {
     const entries = await archive.list();
     expect(entries.map((e) => e.sessionId)).toEqual(['good']);
   });
+
+  it('load rejects a path-traversal sessionId and reads nothing', async () => {
+    const dir = await tmpDir();
+    const archive = createSessionArchive(dir);
+    await archive.saveSnapshot(makeSnapshot('ses_valid', '2026-01-01T00:00:00.000Z'));
+    // A sibling file outside sessionsDir that a traversal id would target.
+    const escapedTarget = path.join(dir, 'etc-passwd.json');
+    await fs.writeFile(escapedTarget, JSON.stringify(['not-empty']), 'utf8');
+    expect(await archive.load('../etc-passwd')).toEqual([]);
+    expect(await archive.load('../../../../etc/passwd')).toEqual([]);
+    // The escaped file must be untouched (still there, unread/unmodified).
+    expect(await fs.readFile(escapedTarget, 'utf8')).toBe(JSON.stringify(['not-empty']));
+  });
+
+  it('saveSnapshot rejects a path-traversal sessionId and writes no file outside sessionsDir', async () => {
+    const dir = await tmpDir();
+    const archive = createSessionArchive(dir);
+    // '../escape' from <dir>/sessions resolves to <dir>/escape.json — the target
+    // a successful traversal write would land at.
+    const escapedTarget = path.join(dir, 'escape.json');
+    const snapshot = makeSnapshot('../escape', '2026-01-01T00:00:00.000Z');
+    await expect(archive.saveSnapshot(snapshot)).resolves.toBeUndefined();
+    // Nothing landed at the escaped location.
+    await expect(fs.access(escapedTarget)).rejects.toThrow();
+    // No sessions dir (or any file) was created at all — the write was skipped entirely.
+    const sessionFiles = await fs.readdir(path.join(dir, 'sessions')).catch(() => null);
+    expect(sessionFiles === null || sessionFiles.length === 0).toBe(true);
+  });
+
+  it('normal ids still round-trip', async () => {
+    const archive = createSessionArchive(await tmpDir());
+    const id = 'ses_abc123-DEF_456';
+    await archive.saveSnapshot(makeSnapshot(id, '2026-01-01T00:00:00.000Z'));
+    const snapshots = await archive.load(id);
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0].state.id).toBe(id);
+  });
 });

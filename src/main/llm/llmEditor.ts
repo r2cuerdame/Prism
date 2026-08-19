@@ -1,9 +1,10 @@
-import type Anthropic from '@anthropic-ai/sdk';
+﻿import type OpenAI from 'openai';
 import { z } from 'zod';
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
+import { zodResponseFormat } from 'openai/helpers/zod';
 import { SessionCommandSchema, type SessionCommand } from '@shared/domain/commands';
 import type { SessionDigest } from '@shared/ipc';
 
+/** Strict structured outputs: every field required, "n/a" expressed as null. */
 const LlmEditCommandSchema = z.object({
   action: z.enum([
     'move_block',
@@ -15,16 +16,16 @@ const LlmEditCommandSchema = z.object({
     'adjust_mix',
     'rename_session'
   ]),
-  blockId: z.string().optional(),
-  toIndex: z.number().optional(),
-  span: z.number().optional(),
-  docked: z.boolean().optional(),
-  locked: z.boolean().optional(),
-  maxItems: z.number().optional(),
-  density: z.enum(['compact', 'comfortable']).optional(),
-  title: z.string().optional(),
-  kind: z.enum(['video', 'article', 'post', 'headline', 'all']).optional(),
-  direction: z.enum(['more', 'less', 'none']).optional()
+  blockId: z.string().nullable(),
+  toIndex: z.number().nullable(),
+  span: z.number().nullable(),
+  docked: z.boolean().nullable(),
+  locked: z.boolean().nullable(),
+  maxItems: z.number().nullable(),
+  density: z.enum(['compact', 'comfortable']).nullable(),
+  title: z.string().nullable(),
+  kind: z.enum(['video', 'article', 'post', 'headline', 'all']).nullable(),
+  direction: z.enum(['more', 'less', 'none']).nullable()
 });
 
 const LlmEditSchema = z.object({
@@ -45,19 +46,19 @@ function mapCommand(
   c: z.infer<typeof LlmEditCommandSchema>,
   digest: SessionDigest
 ): SessionCommand | null {
-  const known = (id?: string): string | null =>
-    id && digest.blocks.some((b) => b.id === id) ? id : null;
+  const known = (id: string | null): string | null =>
+    id !== null && digest.blocks.some((b) => b.id === id) ? id : null;
   let candidate: unknown = null;
   switch (c.action) {
     case 'move_block': {
       const id = known(c.blockId);
-      if (id === null || c.toIndex === undefined) return null;
+      if (id === null || c.toIndex === null) return null;
       candidate = { type: 'move_block', blockId: id, toIndex: Math.max(0, Math.round(c.toIndex)) };
       break;
     }
     case 'resize_block': {
       const id = known(c.blockId);
-      if (id === null || c.span === undefined) return null;
+      if (id === null || c.span === null) return null;
       candidate = { type: 'resize_block', blockId: id, span: clampSpan(c.span) };
       break;
     }
@@ -83,9 +84,9 @@ function mapCommand(
       const id = known(c.blockId);
       if (id === null) return null;
       const props: Record<string, unknown> = {};
-      if (c.maxItems !== undefined) props.maxItems = Math.min(12, Math.max(1, Math.round(c.maxItems)));
-      if (c.density !== undefined) props.density = c.density;
-      if (c.title !== undefined) props.title = c.title;
+      if (c.maxItems !== null) props.maxItems = Math.min(12, Math.max(1, Math.round(c.maxItems)));
+      if (c.density !== null) props.density = c.density;
+      if (c.title !== null) props.title = c.title;
       if (Object.keys(props).length === 0) return null;
       candidate = { type: 'set_block_props', blockId: id, props };
       break;
@@ -106,26 +107,24 @@ function mapCommand(
 }
 
 export async function interpretEditLlm(
-  client: Anthropic,
+  client: OpenAI,
   model: string,
   utterance: string,
   digest: SessionDigest
 ): Promise<{ commands: SessionCommand[]; explanation: string } | null> {
   try {
-    const response = await client.messages.parse({
+    const completion = await client.chat.completions.parse({
       model,
-      max_tokens: 2048,
-      output_config: { format: zodOutputFormat(LlmEditSchema), effort: 'low' },
-      system: SYSTEM,
       messages: [
+        { role: 'system', content: SYSTEM },
         {
           role: 'user',
           content: `Page digest: ${JSON.stringify(digest)}\n\nEdit request: ${utterance}`
         }
-      ]
+      ],
+      response_format: zodResponseFormat(LlmEditSchema, 'edit_commands')
     });
-    if (response.stop_reason === 'refusal') return null;
-    const out = response.parsed_output;
+    const out = completion.choices[0]?.message.parsed;
     if (!out) return null;
     const commands = out.commands
       .map((c) => mapCommand(c, digest))

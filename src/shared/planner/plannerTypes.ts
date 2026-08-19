@@ -15,6 +15,12 @@ export interface PlanRequest {
   hints: CompositionHints;
   /** Short human-readable summary of learned preferences, if any. */
   prefSummary?: string;
+  /** Saved Recipe shape to follow when regenerating from a Recipe. */
+  recipeShape?: {
+    name: string;
+    layoutTemplate: { componentType: string; span: number }[];
+    density: 'compact' | 'comfortable';
+  };
 }
 
 export interface PlanResult {

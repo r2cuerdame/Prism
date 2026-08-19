@@ -2,6 +2,12 @@ import { getCatalogEntry } from '@shared/catalog/catalog';
 import { newId } from '@shared/domain/ids';
 import type { ComponentBlock, LayoutPlan } from '@shared/domain/layoutPlan';
 import type { SourceItem, SourceItemKind } from '@shared/domain/sourceItem';
+import {
+  buildSynthesisPoints,
+  clusterByTopic,
+  interleaveBySource,
+  type TopicCluster
+} from './crossSource';
 import type { PlanRequest, PlanResult } from './plannerTypes';
 
 const KINDS: readonly SourceItemKind[] = ['video', 'article', 'post', 'headline'];
@@ -11,6 +17,13 @@ const DEFAULT_WEIGHT: Record<SourceItemKind, number> = {
   article: 0.4,
   post: 0.4,
   headline: 0.3
+};
+
+const KIND_LABEL: Record<SourceItemKind, string> = {
+  video: '영상',
+  article: '기사',
+  post: '커뮤니티',
+  headline: '헤드라인'
 };
 
 function makeBlock(
@@ -44,10 +57,51 @@ function itemTime(item: SourceItem): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
+/** Short Korean line naming what a cluster's sources are. */
+function clusterAngle(cluster: TopicCluster): string {
+  const kinds: string[] = [];
+  for (const it of cluster.items) {
+    const label = KIND_LABEL[it.kind];
+    if (!kinds.includes(label)) kinds.push(label);
+  }
+  const base = kinds.length >= 2 ? kinds.join('·') : cluster.sources.join('·');
+  const line = `${base}에서 함께 다뤄요`;
+  return line.length <= 300 ? line : `${line.slice(0, 299)}…`;
+}
+
 /**
- * Deterministic offline planner. Composes a LayoutPlan from available items
- * using COMPONENT_CATALOG constraints. Never emits blocks for preserved docked
- * blocks (the session reducer re-inserts them).
+ * Reorder generated blocks to follow a saved Recipe's layout template:
+ * template-listed component types first (in template order, template spans
+ * clamped to catalog bounds), then everything else the fresh items produced.
+ * Recipes save shape, never content. source_list is appended later and always
+ * stays last, so template slots for it are ignored here.
+ */
+function applyRecipeShape(
+  blocks: ComponentBlock[],
+  shape: NonNullable<PlanRequest['recipeShape']>
+): ComponentBlock[] {
+  const rest = [...blocks];
+  const ordered: ComponentBlock[] = [];
+  for (const slot of shape.layoutTemplate) {
+    if (slot.componentType === 'source_list') continue;
+    const i = rest.findIndex((b) => b.componentType === slot.componentType);
+    if (i === -1) continue;
+    const block = rest.splice(i, 1)[0]!;
+    const entry = getCatalogEntry(block.componentType);
+    const span = entry
+      ? Math.min(entry.maxSpan, Math.max(entry.minSpan, Math.round(slot.span)))
+      : block.layout.span;
+    ordered.push({ ...block, layout: { ...block.layout, span } });
+  }
+  return [...ordered, ...rest];
+}
+
+/**
+ * Deterministic offline planner. Composes ONE synthesized page from available
+ * items using COMPONENT_CATALOG constraints: a cross-source synthesis brief
+ * and topic clusters open the page, kind-driven sections (with sources
+ * interleaved) fill the rest, and a single source_list closes it. Never emits
+ * blocks for preserved docked blocks (the session reducer re-inserts them).
  */
 export function heuristicPlan(req: PlanRequest): PlanResult {
   const issues: string[] = [];
@@ -73,9 +127,67 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
     }
   }
 
-  // --- video section ---------------------------------------------------
+  // The working pool after mix filtering, in original order.
+  const keptIds = new Set<string>(KINDS.flatMap((k) => byKind[k].map((it) => it.id)));
+  const pool = available.filter((it) => keptIds.has(it.id));
+  const distinctSources = new Set(pool.map((it) => it.sourceName));
+
+  // --- cross-source opener: synthesis brief + topic clusters --------------
+  const crossBlocks: ComponentBlock[] = [];
+  const crossUsed = new Set<string>();
+  const clusters = clusterByTopic(pool);
+
+  if (pool.length >= 2 && distinctSources.size >= 2) {
+    const synth = buildSynthesisPoints(pool, clusters);
+    if (synth.points.length > 0 && synth.citedItems.length >= 2) {
+      const brief = makeBlock(
+        'synthesis_brief',
+        synth.citedItems.map((it) => it.id),
+        12,
+        { points: synth.points },
+        `${distinctSources.size}개 소스에서 모은 내용을 하나의 브리핑으로 합성했어요.`
+      );
+      if (brief) {
+        crossBlocks.push(brief);
+        for (const r of brief.sourceItemRefs) crossUsed.add(r);
+      }
+    }
+  }
+
+  const shownClusters = clusters.slice(0, 2);
+  for (const cluster of shownClusters) {
+    // Interleave before the catalog cap slices to 8, so the surviving refs
+    // still span multiple sources.
+    const refs = interleaveBySource(cluster.items).map((it) => it.id);
+    const block = makeBlock(
+      'topic_cluster',
+      refs,
+      shownClusters.length === 1 ? 12 : 6,
+      { topic: cluster.topic, angle: clusterAngle(cluster) },
+      `${cluster.sources.length}개 소스가 같은 주제를 다뤄 한 카드로 묶었어요.`
+    );
+    if (block) {
+      crossBlocks.push(block);
+      for (const r of block.sourceItemRefs) crossUsed.add(r);
+    }
+  }
+
+  // Kind sections get what the synthesis/cluster blocks did not use — unless
+  // that would leave them nothing at all.
+  let remaining = pool.filter((it) => !crossUsed.has(it.id));
+  if (remaining.length === 0 && pool.length > 0) remaining = pool;
+
+  const remainingByKind: Record<SourceItemKind, SourceItem[]> = {
+    video: [],
+    article: [],
+    post: [],
+    headline: []
+  };
+  for (const it of remaining) remainingByKind[it.kind].push(it);
+
+  // --- video section ------------------------------------------------------
   const videoBlocks: ComponentBlock[] = [];
-  const vids = byKind.video.map((v) => v.id);
+  const vids = interleaveBySource(remainingByKind.video).map((v) => v.id);
   const videoLess = mix.video === 'less';
   if (vids.length > 0) {
     if (videoLess) {
@@ -103,15 +215,21 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
     }
   }
 
-  // --- news section (headline strip + article list) ---------------------
-  const newsPool = [...byKind.article, ...byKind.headline].sort((a, b) => itemTime(b) - itemTime(a));
+  // --- news section (headline strip + article list) -----------------------
+  // Newest first, then interleaved across sources so no list is one outlet's
+  // silo when alternatives exist.
+  const newsPool = interleaveBySource(
+    [...remainingByKind.article, ...remainingByKind.headline].sort(
+      (a, b) => itemTime(b) - itemTime(a)
+    )
+  );
 
   const headlineBlocks: ComponentBlock[] = [];
   let stripRefs: string[] = [];
   if (newsPool.length >= 3 && mix.headline !== 'less') {
     const stripCap = mix.headline === 'more' ? 10 : 5;
     stripRefs = newsPool.slice(0, stripCap).map((it) => it.id);
-    const s = makeBlock('headline_strip', stripRefs, 12, {}, '가장 최근 소식을 한 줄로 훑어봅니다.');
+    const s = makeBlock('headline_strip', stripRefs, 12, {}, '여러 소스의 최근 소식을 한 줄로 섞어 훑어봅니다.');
     if (s) headlineBlocks.push(s);
     else stripRefs = [];
   }
@@ -122,18 +240,22 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   const articleRefs = remainingArticles.slice(0, articleCap);
 
   const postBlocks: ComponentBlock[] = [];
-  const postRefs = byKind.post.map((p) => p.id);
+  const postRefs = interleaveBySource(remainingByKind.post).map((p) => p.id);
 
   const hasPosts = postRefs.length > 0;
   const hasArticles = articleRefs.length > 0;
 
   if (hasArticles) {
+    const articleProps: Record<string, unknown> = {
+      maxItems: Math.min(articleRefs.length, articleCap)
+    };
+    if (req.recipeShape) articleProps.density = req.recipeShape.density;
     const a = makeBlock(
       'article_list',
       articleRefs,
       hasPosts ? 6 : 12,
-      { maxItems: Math.min(articleRefs.length, articleCap) },
-      '읽어볼 만한 기사 목록입니다.'
+      articleProps,
+      '읽어볼 만한 기사를 소스를 섞어 모았습니다.'
     );
     if (a) articleBlocks.push(a);
   }
@@ -149,7 +271,7 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
     if (c) postBlocks.push(c);
   }
 
-  // --- ordering by contentBalance weight --------------------------------
+  // --- kind section ordering by contentBalance weight ---------------------
   const weight = (k: SourceItemKind): number =>
     req.interpretation.contentBalance[k] ?? DEFAULT_WEIGHT[k];
   const sections: { kind: SourceItemKind; blocks: ComponentBlock[] }[] = [
@@ -158,13 +280,17 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
     { kind: 'article', blocks: articleBlocks },
     { kind: 'post', blocks: postBlocks }
   ];
-  const ordered = sections
+  const orderedSections = sections
     .map((s, i) => ({ ...s, i }))
     .sort((a, b) => weight(b.kind) - weight(a.kind) || a.i - b.i);
 
-  const blocks: ComponentBlock[] = ordered.flatMap((s) => s.blocks);
+  // Synthesis first, clusters next, kind sections after.
+  let blocks: ComponentBlock[] = [...crossBlocks, ...orderedSections.flatMap((s) => s.blocks)];
 
-  // --- source_list (always last) ----------------------------------------
+  // --- Recipe shape: preferred section order/spans ------------------------
+  if (req.recipeShape) blocks = applyRecipeShape(blocks, req.recipeShape);
+
+  // --- source_list (always last) ------------------------------------------
   const usedRefs: string[] = [];
   for (const b of blocks) {
     for (const r of b.sourceItemRefs) if (!usedRefs.includes(r)) usedRefs.push(r);
@@ -174,7 +300,7 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
     if (src) blocks.push(src);
   }
 
-  // --- guarantee at least one block -------------------------------------
+  // --- guarantee at least one block ---------------------------------------
   if (blocks.length === 0) {
     const empty = makeBlock(
       'text',

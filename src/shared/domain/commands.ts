@@ -3,6 +3,7 @@ import { ComponentBlockSchema, LayoutPlanSchema } from './layoutPlan';
 import { IntentSchema } from './intent';
 import { SourceItemKindSchema, SourceItemSchema } from './sourceItem';
 import { SessionStatusSchema } from './session';
+import { ProvenanceSchema } from './provenance';
 
 /**
  * The single edit language of a Session. Direct manipulation (drag/resize/
@@ -60,13 +61,16 @@ export const SessionCommandSchema = z.discriminatedUnion('type', [
     type: z.literal('apply_plan'),
     plan: LayoutPlanSchema,
     /** New items to merge into the session pool. */
-    items: z.array(SourceItemSchema).optional()
+    items: z.array(SourceItemSchema).optional(),
+    /** Evidence records for those items. */
+    provenance: z.array(ProvenanceSchema).optional()
   }),
   z.object({
     type: z.literal('replace_block'),
     blockId: z.string(),
     block: ComponentBlockSchema,
-    items: z.array(SourceItemSchema).optional()
+    items: z.array(SourceItemSchema).optional(),
+    provenance: z.array(ProvenanceSchema).optional()
   }),
   z.object({
     type: z.literal('add_intent'),
@@ -80,6 +84,15 @@ export const SessionCommandSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('rename_session'),
     title: z.string()
+  }),
+  /** A standing tuning instruction for this Session's future generations. */
+  z.object({
+    type: z.literal('add_hint_note'),
+    note: z.string().min(1).max(400)
+  }),
+  z.object({
+    type: z.literal('remove_hint_note'),
+    note: z.string()
   })
 ]);
 

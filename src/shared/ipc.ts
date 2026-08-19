@@ -23,6 +23,8 @@ export const IPC = {
   sessionsLoad: 'gptb:sessions-load',
   settingsGet: 'gptb:settings-get',
   settingsSet: 'gptb:settings-set',
+  authStatus: 'gptb:auth-status',
+  authLogin: 'gptb:auth-login',
   updaterCheck: 'gptb:updater-check',
   updaterInstall: 'gptb:updater-install',
   openOriginal: 'gptb:open-original',
@@ -49,7 +51,15 @@ export interface GenerateRequest {
   hints: CompositionHints;
   /** Items referenced by preserved blocks (kept across regeneration). */
   keepItems: SourceItem[];
-  recipeContext: { recipeId: string; name: string } | null;
+  recipeContext: RecipeContext | null;
+}
+
+/** A Recipe's saved shape — guides composition, never freezes content. */
+export interface RecipeContext {
+  recipeId: string;
+  name: string;
+  layoutTemplate: { componentType: string; span: number }[];
+  density: 'compact' | 'comfortable';
 }
 
 export interface GenerateResponse {
@@ -68,8 +78,11 @@ export interface RegenerateBlockRequest {
   sessionId: string;
   block: ComponentBlock;
   interpretation: InterpretedIntent;
-  /** Item ids already on the page, to avoid repeats. */
-  excludeItemIds: string[];
+  /**
+   * Original URLs already on the page. URLs are the stable identity across
+   * fetches — item ids are minted fresh every time, so they cannot dedupe.
+   */
+  excludeUrls: string[];
 }
 
 export interface RegenerateBlockResponse {
@@ -110,16 +123,28 @@ export interface InterpretEditResponse {
   error?: string;
 }
 
+/** How the app is authenticated for planning: GPT login, key, or nothing. */
+export type AuthMethod = 'api-key' | 'env-key' | 'oauth' | 'none';
+
 export interface SettingsView {
   hasApiKey: boolean;
+  /** Active credential source: explicit key, env, OAuth profile, or none. */
+  authMethod: AuthMethod;
+  authDetail: string;
   plannerModel: string;
   autoUpdate: boolean;
   locale: 'ko' | 'en';
   appVersion: string;
 }
 
+export interface AuthLoginResult {
+  ok: boolean;
+  message: string;
+  settings: SettingsView;
+}
+
 export interface SettingsPatch {
-  anthropicApiKey?: string | null;
+  openaiApiKey?: string | null;
   plannerModel?: string;
   autoUpdate?: boolean;
   locale?: 'ko' | 'en';
@@ -171,6 +196,10 @@ export interface GptbApi {
   sessionsLoad(sessionId: string): Promise<GeneratedSnapshot[]>;
   settingsGet(): Promise<SettingsView>;
   settingsSet(patch: SettingsPatch): Promise<SettingsView>;
+  /** Re-detect the active credential source. */
+  authStatus(): Promise<SettingsView>;
+  /** Run the ChatGPT-account sign-in (opens the system browser). */
+  authLogin(): Promise<AuthLoginResult>;
   updaterCheck(): Promise<UpdaterStatus>;
   updaterInstall(): Promise<void>;
   openOriginal(url: string): Promise<void>;

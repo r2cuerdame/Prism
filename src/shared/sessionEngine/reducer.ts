@@ -3,6 +3,7 @@ import type { SessionCommand } from '@shared/domain/commands';
 import type { ComponentBlock, LayoutPlan } from '@shared/domain/layoutPlan';
 import type { SourceItem, SourceItemKind } from '@shared/domain/sourceItem';
 import { SOURCE_ITEM_KINDS } from '@shared/domain/sourceItem';
+import type { Provenance } from '@shared/domain/provenance';
 
 const DEFAULT_TITLE = '새 세션';
 const MAX_NOTES = 10;
@@ -164,11 +165,12 @@ export function applySessionCommand(state: SessionState, cmd: SessionCommand, at
       if (idx < 0 || !state.plan) return state;
       const blocks = replaceBlockAt(state.plan.blocks, idx, cmd.block);
       const items = mergeItems(state.items, cmd.items);
-      return { ...state, plan: { ...state.plan, blocks }, items, updatedAt: ts };
+      const provenance = mergeProvenance(state.provenance, cmd.provenance);
+      return { ...state, plan: { ...state.plan, blocks }, items, provenance, updatedAt: ts };
     }
 
     case 'apply_plan': {
-      return applyPlan(state, cmd.plan, cmd.items, ts);
+      return applyPlan(state, cmd.plan, cmd.items, cmd.provenance, ts);
     }
 
     case 'add_intent': {
@@ -190,6 +192,28 @@ export function applySessionCommand(state: SessionState, cmd: SessionCommand, at
       return { ...state, title: cmd.title, updatedAt: ts };
     }
 
+    case 'add_hint_note': {
+      const note = cmd.note.trim();
+      if (note === '' || state.compositionHints.notes.includes(note)) return state;
+      let notes = [...state.compositionHints.notes, note];
+      if (notes.length > MAX_NOTES) notes = notes.slice(notes.length - MAX_NOTES);
+      return {
+        ...state,
+        compositionHints: { ...state.compositionHints, notes },
+        updatedAt: ts
+      };
+    }
+
+    case 'remove_hint_note': {
+      const notes = state.compositionHints.notes.filter((n) => n !== cmd.note);
+      if (notes.length === state.compositionHints.notes.length) return state;
+      return {
+        ...state,
+        compositionHints: { ...state.compositionHints, notes },
+        updatedAt: ts
+      };
+    }
+
     default:
       return state;
   }
@@ -205,19 +229,45 @@ function mergeItems(
   return merged;
 }
 
+function mergeProvenance(
+  pool: Record<string, Provenance>,
+  incoming: Provenance[] | undefined
+): Record<string, Provenance> {
+  if (!incoming || incoming.length === 0) return pool;
+  const merged = { ...pool };
+  for (const record of incoming) merged[record.id] = record;
+  return merged;
+}
+
+/** Keep only the evidence records the surviving items still point at. */
+function pruneProvenance(
+  pool: Record<string, Provenance>,
+  items: Record<string, SourceItem>
+): Record<string, Provenance> {
+  const kept: Record<string, Provenance> = {};
+  for (const item of Object.values(items)) {
+    const record = pool[item.provenanceRef];
+    if (record) kept[record.id] = record;
+  }
+  return kept;
+}
+
 function applyPlan(
   state: SessionState,
   plan: LayoutPlan,
   newItems: SourceItem[] | undefined,
+  newProvenance: Provenance[] | undefined,
   ts: string
 ): SessionState {
   const blocks = plan.blocks.slice();
 
-  // Re-insert docked blocks the new plan dropped, near their old position.
+  // Re-insert preserved blocks the new plan dropped, near their old position.
+  // Planners are told not to re-emit them, so both dock (survive regeneration)
+  // and lock (content pinned) must be honored here or the block vanishes.
   if (state.plan) {
     const newIds = new Set(plan.blocks.map((b) => b.id));
     state.plan.blocks.forEach((block, oldIndex) => {
-      if (block.docked && !newIds.has(block.id)) {
+      if ((block.docked || block.locked) && !newIds.has(block.id)) {
         blocks.splice(Math.min(oldIndex, blocks.length), 0, block);
       }
     });
@@ -245,6 +295,7 @@ function applyPlan(
     ...state,
     plan: finalPlan,
     items,
+    provenance: pruneProvenance(mergeProvenance(state.provenance, newProvenance), items),
     status: 'ready',
     statusDetail: undefined,
     updatedAt: ts

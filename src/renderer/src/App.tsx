@@ -2,6 +2,7 @@ import { useEffect, type ReactElement } from 'react';
 import { appStore, useAppState } from './state/appStore';
 import IntentBar from './components/IntentBar';
 import Sidebar from './components/Sidebar';
+import TuningBar from './components/TuningBar';
 import UpdateBanner from './components/UpdateBanner';
 import GeneratedView from './components/GeneratedView';
 import EmptyState from './components/EmptyState';
@@ -60,6 +61,7 @@ export default function App(): ReactElement {
         <main className="canvas">
           {session && hasPlan ? (
             <>
+              <TuningBar />
               {session.status === 'partial' && session.statusDetail && (
                 <div className="status-line status-line--partial">{session.statusDetail}</div>
               )}

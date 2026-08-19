@@ -138,6 +138,55 @@ export const COMPONENT_CATALOG: CatalogEntry[] = [
     fallback: 'placeholder'
   },
   {
+    type: 'synthesis_brief',
+    version: 1,
+    title: '합성 브리핑',
+    descriptionForPlanner:
+      "The page's opening synthesis: 2-5 short bullet points YOU write that merge what the sources collectively say about the intent — themes, agreements, contrasts, what is new. NOT a list of links and NOT a per-source summary. Every bullet must cite the items it came from by index into sourceItemRefs (props.points[i].cites = [0,2]). Cite items from DIFFERENT sources in the same bullet wherever the sources overlap. Use once, near the top.",
+    propsSchema: z.object({
+      title: titleProp,
+      points: z
+        .array(
+          z.object({
+            text: z.string().max(400),
+            /** Indices into sourceItemRefs backing this claim. */
+            cites: z.array(z.number().int().min(0)).default([])
+          })
+        )
+        .min(1)
+        .max(6)
+    }),
+    defaultProps: { points: [] },
+    acceptsKinds: null,
+    minItems: 2,
+    maxItems: 20,
+    defaultSpan: 12,
+    minSpan: 6,
+    maxSpan: 12,
+    actions: ['open-original', 'inspect'],
+    fallback: 'hide'
+  },
+  {
+    type: 'topic_cluster',
+    version: 1,
+    title: '주제 묶음',
+    descriptionForPlanner:
+      'One topic covered by SEVERAL DIFFERENT sources, gathered into a single card: props.topic names the thread, props.angle (optional) says what differs between them. sourceItemRefs MUST span at least two distinct sources (and may mix kinds: an article, a video and a community thread about the same thing). Use 1-3 of these for the main threads of the page. Never use it for items that all come from one source.',
+    propsSchema: z.object({
+      topic: z.string().max(120),
+      angle: z.string().max(300).optional()
+    }),
+    defaultProps: {},
+    acceptsKinds: null,
+    minItems: 2,
+    maxItems: 8,
+    defaultSpan: 6,
+    minSpan: 4,
+    maxSpan: 12,
+    actions: ['open-original', 'inspect'],
+    fallback: 'hide'
+  },
+  {
     type: 'source_list',
     version: 1,
     title: '출처',

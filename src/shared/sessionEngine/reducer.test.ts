@@ -4,6 +4,7 @@ import { createSessionState } from '@shared/domain/session';
 import type { ComponentBlock, LayoutPlan } from '@shared/domain/layoutPlan';
 import type { SourceItem } from '@shared/domain/sourceItem';
 import type { Intent } from '@shared/domain/intent';
+import type { Provenance } from '@shared/domain/provenance';
 import { applySessionCommand } from './reducer';
 
 const T0 = '2026-08-19T00:00:00.000Z';
@@ -347,5 +348,52 @@ describe('apply_plan', () => {
     const next = applySessionCommand(s, { type: 'apply_plan', plan }, T1);
     expect(next.plan?.blocks.map((b) => b.id)).toEqual(['n1']);
     expect(next.status).toBe('ready');
+  });
+
+  it('re-inserts locked blocks too — planners never re-emit preserved blocks', () => {
+    const locked = makeBlock('lock1', { locked: true, docked: false });
+    const s = baseState([makeBlock('b1'), locked, makeBlock('b3')]);
+    const plan = makePlan([makeBlock('n1'), makeBlock('n2')], { id: 'plan2' });
+    const next = applySessionCommand(s, { type: 'apply_plan', plan }, T1);
+    expect(next.plan?.blocks.map((b) => b.id)).toEqual(['n1', 'lock1', 'n2']);
+  });
+
+  it('merges provenance and prunes records no surviving item points at', () => {
+    const kept = makeItem('i1', { provenanceRef: 'p1' });
+    const dropped = makeItem('i2', { provenanceRef: 'p2', retrievedAt: '2020-01-01T00:00:00.000Z' });
+    const record = (id: string): Provenance => ({
+      id,
+      sourceUrl: 'https://example.com/' + id,
+      sourceName: 'Hacker News',
+      adapterId: 'ad1',
+      retrievedAt: T0,
+      transformations: ['normalized']
+    });
+    const s = baseState([makeBlock('b1', { sourceItemRefs: ['i1'] })]);
+    const plan = makePlan([makeBlock('n1', { sourceItemRefs: ['i1'] })], { id: 'plan2' });
+    const next = applySessionCommand(
+      s,
+      {
+        type: 'apply_plan',
+        plan,
+        items: [kept, dropped],
+        provenance: [record('p1'), record('p2')]
+      },
+      T1
+    );
+    expect(next.provenance.p1).toBeDefined();
+    // i2 stays in the pool as a recent unreferenced item, so p2 stays with it.
+    expect(next.items.i2).toBeDefined();
+    expect(next.provenance.p2).toBeDefined();
+
+    // Once the item itself is gone, its evidence record goes too.
+    const plan3 = makePlan([makeBlock('n2', { sourceItemRefs: ['i1'] })], { id: 'plan3' });
+    const pruned = applySessionCommand(
+      { ...next, items: { i1: kept } },
+      { type: 'apply_plan', plan: plan3 },
+      T1
+    );
+    expect(pruned.provenance.p1).toBeDefined();
+    expect(pruned.provenance.p2).toBeUndefined();
   });
 });

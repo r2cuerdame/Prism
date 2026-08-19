@@ -1,7 +1,7 @@
 import { app, shell, BrowserWindow } from 'electron';
 import { join } from 'path';
 import { registerIpcHandlers } from './ipcHandlers';
-import { isSafeHttpUrl } from './originalViewer';
+import { installPermissionHandlers, isSafeHttpUrl } from './originalViewer';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -60,6 +60,7 @@ if (!gotLock) {
   });
 
   void app.whenReady().then(() => {
+    installPermissionHandlers();
     const services = registerIpcHandlers(() => mainWindow);
     createWindow();
     services.updater.startPeriodic();

@@ -53,6 +53,15 @@ export default function InspectPanel(): ReactElement | null {
               )}
               <span>수집 {new Date(item.retrievedAt).toLocaleTimeString('ko-KR')}</span>
             </div>
+            {(() => {
+              const record = session.provenance[item.provenanceRef];
+              if (!record || record.transformations.length === 0) return null;
+              return (
+                <div className="inspect-transforms">
+                  적용된 변환: {record.transformations.join(' · ')}
+                </div>
+              );
+            })()}
             <button className="inspect-original" onClick={() => appStore.openOriginal(item.originalUrl)}>
               원본 열기 ↗
             </button>

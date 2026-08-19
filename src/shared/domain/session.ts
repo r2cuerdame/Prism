@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { IntentSchema } from './intent';
 import { LayoutPlanSchema } from './layoutPlan';
 import { SourceItemSchema } from './sourceItem';
+import { ProvenanceSchema } from './provenance';
 
 export const SessionStatusSchema = z.enum([
   'idle',
@@ -37,6 +38,11 @@ export const SessionStateSchema = z.object({
   plan: LayoutPlanSchema.nullable(),
   /** Item pool available to the Session, keyed by item id. */
   items: z.record(z.string(), SourceItemSchema),
+  /**
+   * Evidence records keyed by provenance id. Kept in Session state so
+   * provenance survives composition, regeneration and history (GOAL.md §5).
+   */
+  provenance: z.record(z.string(), ProvenanceSchema).default({}),
   compositionHints: CompositionHintsSchema,
   status: SessionStatusSchema,
   statusDetail: z.string().optional(),
@@ -60,6 +66,7 @@ export function createSessionState(id: string, now: string): SessionState {
     intentHistory: [],
     plan: null,
     items: {},
+    provenance: {},
     compositionHints: emptyCompositionHints(),
     status: 'idle',
     createdAt: now,

@@ -5,6 +5,8 @@ import HeadlineStripBlock from './HeadlineStripBlock';
 import ArticleListBlock from './ArticleListBlock';
 import ReaderBlock from './ReaderBlock';
 import CommunityPostsBlock from './CommunityPostsBlock';
+import SynthesisBriefBlock from './SynthesisBriefBlock';
+import TopicClusterBlock from './TopicClusterBlock';
 import SourceListBlock from './SourceListBlock';
 import { HeadingBlock, TextBlock, DividerBlock } from './PrimitiveBlocks';
 
@@ -16,6 +18,8 @@ export const BLOCK_REGISTRY: Record<string, BlockComponent> = {
   article_list: ArticleListBlock,
   reader: ReaderBlock,
   community_posts: CommunityPostsBlock,
+  synthesis_brief: SynthesisBriefBlock,
+  topic_cluster: TopicClusterBlock,
   source_list: SourceListBlock,
   heading: HeadingBlock,
   text: TextBlock,

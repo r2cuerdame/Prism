@@ -1,4 +1,4 @@
-import { BrowserWindow, shell } from 'electron';
+import { BrowserWindow, session, shell } from 'electron';
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
 
@@ -7,6 +7,23 @@ export function isSafeHttpUrl(raw: string): boolean {
     return ALLOWED_PROTOCOLS.has(new URL(raw).protocol);
   } catch {
     return false;
+  }
+}
+
+let permissionHandlersInstalled = false;
+
+/**
+ * Electron's default is to APPROVE every permission request (camera, mic,
+ * geolocation, ...). The original viewer loads arbitrary http(s) sites, so
+ * deny everything on both its partition and the default session. Idempotent
+ * so it is safe to call again (e.g. from 'activate').
+ */
+export function installPermissionHandlers(): void {
+  if (permissionHandlersInstalled) return;
+  permissionHandlersInstalled = true;
+  for (const ses of [session.fromPartition('persist:original-viewer'), session.defaultSession]) {
+    ses.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+    ses.setPermissionCheckHandler(() => false);
   }
 }
 
