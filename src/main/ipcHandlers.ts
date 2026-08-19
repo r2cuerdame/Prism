@@ -39,7 +39,7 @@ import { createRecipeStore } from './store/recipeStore';
 import { createPreferenceStore } from './store/preferenceStore';
 import { createSessionArchive } from './store/sessionArchive';
 import { createSettingsStore } from './store/settingsStore';
-import { createOpenAIClient } from './llm/openaiClient';
+import { createCodexRunner, type CodexRunner } from './llm/codexRunner';
 import { detectAuth, runOauthLogin } from './llm/gptAuth';
 import { interpretIntentLlm } from './llm/llmIntent';
 import { planLayoutLlm } from './llm/llmPlanner';
@@ -138,34 +138,30 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
   };
   const progress = (p: GenerateProgress): void => send(IPC.evGenerateProgress, p);
 
-  const llm = async (): Promise<{ client: ReturnType<typeof createOpenAIClient>; model: string }> => {
+  /** Planning borrows the user's Codex sign-in; the app never holds a key. */
+  const llm = async (): Promise<{ runner: CodexRunner }> => {
     const s = await settings.get();
     const view = await settingsView();
-    if (view.authMethod === 'none') return { client: null, model: s.plannerModel };
-    // A ChatGPT sign-in can supply the key, so fall back to what auth derived.
-    const key = s.openaiApiKey ?? authCache?.derivedKey;
-    return { client: createOpenAIClient(key), model: s.plannerModel };
+    return {
+      runner: createCodexRunner({
+        ready: view.authMethod !== 'none',
+        model: s.plannerModel === '' ? undefined : s.plannerModel
+      })
+    };
   };
 
   let authCache: {
     method: SettingsView['authMethod'];
     detail: string;
-    derivedKey?: string;
     at: number;
   } | null = null;
   const settingsView = async (forceAuthProbe = false): Promise<SettingsView> => {
     const s = await settings.get();
     if (forceAuthProbe || !authCache || Date.now() - authCache.at > 60_000) {
-      const detected = await detectAuth(s.openaiApiKey);
-      authCache = {
-        method: detected.method,
-        detail: detected.detail,
-        derivedKey: detected.derivedKey,
-        at: Date.now()
-      };
+      const detected = await detectAuth(undefined);
+      authCache = { method: detected.method, detail: detected.detail, at: Date.now() };
     }
     return {
-      hasApiKey: Boolean(s.openaiApiKey ?? process.env.OPENAI_API_KEY),
       authMethod: authCache.method,
       authDetail: authCache.detail,
       plannerModel: s.plannerModel,
@@ -191,16 +187,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
     if (!parsedReq.success) return fail('요청 형식이 올바르지 않아요.');
     const req: GenerateRequest = parsedReq.data;
     try {
-      const { client, model } = await llm();
+      const { runner } = await llm();
       const prefSummary = await prefs.summarizeForPlanner();
 
       progress({ sessionId: req.sessionId, phase: 'interpreting' });
       let interpretation: InterpretedIntent | null = null;
       if (req.rawInput !== null && req.rawInput.trim() !== '') {
-        if (client) {
+        if (runner.ready) {
           interpretation = await interpretIntentLlm(
-            client,
-            model,
+            runner,
             req.rawInput,
             req.priorInterpretation,
             prefSummary || undefined
@@ -243,10 +238,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
             }
           : undefined
       };
-      let planResult = client ? await planLayoutLlm(client, model, planReq) : null;
+      let planResult = runner.ready ? await planLayoutLlm(runner, planReq) : null;
       const issues: string[] = [];
       if (!planResult) {
-        if (client) issues.push('LLM 플래너를 사용할 수 없어 휴리스틱 플래너로 구성했어요.');
+        if (runner.ready) {
+          issues.push('Codex 플래너를 사용할 수 없어 오프라인 구성으로 만들었어요.');
+        }
         planResult = heuristicPlan(planReq);
       }
       issues.push(...planResult.issues);
@@ -344,8 +341,8 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
         };
       }
       const req: InterpretEditRequest = parsed.data;
-      const { client, model } = await llm();
-      if (!client) {
+      const { runner } = await llm();
+      if (!runner.ready) {
         return {
           ok: false,
           commands: [],
@@ -354,7 +351,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
           source: 'none'
         };
       }
-      const result = await interpretEditLlm(client, model, req.utterance, req.digest);
+      const result = await interpretEditLlm(runner, req.utterance, req.digest);
       if (!result) {
         return { ok: false, commands: [], explanation: '요청을 해석하지 못했어요.', source: 'llm' };
       }
@@ -385,8 +382,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
     await settings.set({
       ...(patch.plannerModel !== undefined ? { plannerModel: patch.plannerModel } : {}),
       ...(patch.autoUpdate !== undefined ? { autoUpdate: patch.autoUpdate } : {}),
-      ...(patch.locale !== undefined ? { locale: patch.locale } : {}),
-      ...(patch.openaiApiKey !== undefined ? { openaiApiKey: patch.openaiApiKey } : {})
+      ...(patch.locale !== undefined ? { locale: patch.locale } : {})
     });
     return settingsView(true);
   });

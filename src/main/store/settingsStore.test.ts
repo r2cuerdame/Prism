@@ -12,7 +12,7 @@ describe('settingsStore', () => {
   it('returns defaults when no file exists', async () => {
     const store = createSettingsStore(await tmpDir());
     expect(await store.get()).toEqual({
-      plannerModel: 'gpt-5.5',
+      plannerModel: '',
       autoUpdate: true,
       locale: 'ko'
     });
@@ -21,21 +21,13 @@ describe('settingsStore', () => {
   it('merges patches and persists', async () => {
     const dir = await tmpDir();
     const store = createSettingsStore(dir);
-    const after = await store.set({ openaiApiKey: 'sk-test', locale: 'en' });
-    expect(after.openaiApiKey).toBe('sk-test');
+    const after = await store.set({ plannerModel: 'gpt-5-codex', locale: 'en' });
+    expect(after.plannerModel).toBe('gpt-5-codex');
     expect(after.locale).toBe('en');
-    expect(after.plannerModel).toBe('gpt-5.5');
+    expect(after.autoUpdate).toBe(true);
     // new instance reads persisted state
     const reread = await createSettingsStore(dir).get();
     expect(reread).toEqual(after);
-  });
-
-  it('openaiApiKey: null deletes the key', async () => {
-    const store = createSettingsStore(await tmpDir());
-    await store.set({ openaiApiKey: 'sk-test' });
-    const after = await store.set({ openaiApiKey: null });
-    expect('openaiApiKey' in after).toBe(false);
-    expect((await store.get()).openaiApiKey).toBeUndefined();
   });
 
   it('undefined patch values do not clobber existing settings', async () => {
@@ -51,7 +43,7 @@ describe('settingsStore', () => {
     const file = path.join(dir, 'settings.json');
     await fs.writeFile(file, 'not-json', 'utf8');
     const store = createSettingsStore(dir);
-    expect((await store.get()).plannerModel).toBe('gpt-5.5');
+    expect((await store.get()).plannerModel).toBe('');
     expect(await fs.readFile(`${file}.bak`, 'utf8')).toBe('not-json');
   });
 });

@@ -1,7 +1,4 @@
-import { spawn } from 'child_process';
-import { readFile } from 'fs/promises';
-import { join } from 'path';
-import { homedir } from 'os';
+import { spawn } from 'node:child_process';
 import type { AuthMethod } from '@shared/ipc';
 
 interface RunResult {
@@ -39,29 +36,23 @@ function run(cmd: string, args: string[], timeoutMs: number): Promise<RunResult>
   });
 }
 
-const NOT_FOUND_RE = /not recognized|찾을 수 없|없습니다|command not found|ENOENT/i;
+const NOT_FOUND_RE =
+  /not recognized|찾을 수 없|인식되지 않|아닙니다|command not found|not found|ENOENT/i;
 
-/** Path the Codex CLI writes its ChatGPT-account session to. */
-const CODEX_AUTH_PATH = join(homedir(), '.codex', 'auth.json');
+/** cmd.exe reports a missing executable as 9009, POSIX shells as 127. */
+const isMissingCli = (r: RunResult): boolean =>
+  r.code === null || r.code === 9009 || r.code === 127 || NOT_FOUND_RE.test(r.out);
 
-async function readCodexAuth(): Promise<{ signedIn: boolean; apiKey?: string }> {
-  try {
-    const raw = await readFile(CODEX_AUTH_PATH, 'utf8');
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed === null || typeof parsed !== 'object') return { signedIn: false };
-    const obj = parsed as Record<string, unknown>;
-    // The file holds either an API key or ChatGPT-account OAuth tokens.
-    const apiKey = typeof obj.OPENAI_API_KEY === 'string' ? obj.OPENAI_API_KEY : undefined;
-    const hasTokens = obj.tokens !== undefined && obj.tokens !== null;
-    return { signedIn: Boolean(apiKey) || hasTokens, apiKey };
-  } catch {
-    return { signedIn: false };
-  }
-}
+/** `codex login status` prints this (and may still exit 0) when signed out. */
+const SIGNED_OUT_RE = /not logged in/i;
+
+const isSignedIn = (r: RunResult): boolean =>
+  !isMissingCli(r) && r.code === 0 && !SIGNED_OUT_RE.test(r.out);
 
 /**
- * Which GPT credential is active. An explicit key always wins; otherwise we
- * look for a ChatGPT-account session written by the Codex CLI.
+ * Which GPT credential is active. The Codex CLI is the source of truth: the
+ * app itself holds no key, it borrows the user's ChatGPT-account session.
+ * An explicit key is still honoured for the advanced path.
  */
 export async function detectAuth(
   storedKey: string | undefined
@@ -70,43 +61,36 @@ export async function detectAuth(
   if (process.env.OPENAI_API_KEY) {
     return { method: 'env-key', detail: 'OPENAI_API_KEY 환경 변수' };
   }
-  const codex = await readCodexAuth();
-  if (codex.signedIn && codex.apiKey) {
-    return { method: 'oauth', detail: 'ChatGPT 계정 로그인', derivedKey: codex.apiKey };
+  const status = await run('codex', ['login', 'status'], 15_000);
+  if (isMissingCli(status)) {
+    return { method: 'none', detail: 'Codex CLI가 없어 오프라인 구성으로 동작 중이에요' };
   }
-  if (codex.signedIn) {
-    // Session tokens exist but carry no API key, so they cannot drive API
-    // calls. Say so instead of showing a green light over the offline planner.
-    return {
-      method: 'none',
-      detail: 'ChatGPT 로그인은 있지만 API 키가 없어 오프라인 구성으로 동작 중이에요'
-    };
+  if (isSignedIn(status)) {
+    return { method: 'oauth', detail: 'Codex(ChatGPT) 계정으로 로그인됨' };
   }
-  return { method: 'none', detail: '' };
+  return { method: 'none', detail: 'Codex에 로그인하면 여러 소스를 합성해 드려요' };
 }
 
 /**
- * Start the ChatGPT-account sign-in. This is the Codex CLI's OAuth flow: it
- * opens the system browser and writes a session to ~/.codex/auth.json.
+ * Start the ChatGPT-account sign-in: the Codex CLI's OAuth flow opens the
+ * system browser, so this can sit for a long time before it returns.
  */
 export async function runOauthLogin(): Promise<{ ok: boolean; message: string }> {
-  const probe = await run('codex', ['--version'], 8000);
-  if (probe.code === null || NOT_FOUND_RE.test(probe.out)) {
+  const probe = await run('codex', ['--version'], 8_000);
+  if (isMissingCli(probe)) {
     return {
       ok: false,
       message:
-        'ChatGPT 로그인에 필요한 Codex CLI를 찾지 못했어요. `npm i -g @openai/codex` 로 설치한 뒤 다시 시도하거나, 설정의 고급 항목에서 API 키를 넣어 주세요.'
+        'ChatGPT 로그인에 필요한 Codex CLI를 찾지 못했어요. 터미널에서 `npm i -g @openai/codex` 로 설치한 뒤 다시 시도해 주세요.'
     };
   }
-  const r = await run('codex', ['login'], 300_000);
-  if (r.code === 0) {
-    const after = await readCodexAuth();
-    if (after.signedIn) {
-      return { ok: true, message: 'ChatGPT 계정이 연결됐어요. 이제 합성 플래너가 켜집니다.' };
-    }
+  const login = await run('codex', ['login'], 300_000);
+  const after = await run('codex', ['login', 'status'], 15_000);
+  if (isSignedIn(after)) {
+    return { ok: true, message: 'Codex(ChatGPT) 계정이 연결됐어요. 이제 합성 플래너가 켜집니다.' };
   }
   const tail =
-    r.out
+    login.out
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter(Boolean)

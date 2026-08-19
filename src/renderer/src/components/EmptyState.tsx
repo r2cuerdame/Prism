@@ -18,10 +18,10 @@ export default function EmptyState(): ReactElement {
       {needsAuth && (
         <div className="empty-auth">
           <span>
-            로그인하면 여러 소스를 <strong>하나의 페이지로 합성</strong>해 드려요. 로그인 전에는
-            오프라인 구성으로 동작해요.
+            Codex 계정으로 로그인하면 여러 소스를 <strong>하나의 페이지로 합성</strong>해 드려요.
+            API 키는 필요 없고, 로그인 전에는 오프라인 구성으로 동작해요.
           </span>
-          <button onClick={() => void appStore.loginOauth()}>OAuth로 로그인</button>
+          <button onClick={() => void appStore.loginOauth()}>Codex로 로그인</button>
         </div>
       )}
       <div className="empty-brand">

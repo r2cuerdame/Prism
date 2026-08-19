@@ -1,7 +1,6 @@
-import type OpenAI from 'openai';
 import { z } from 'zod';
-import { zodResponseFormat } from 'openai/helpers/zod';
 import { InterpretedIntentSchema, type InterpretedIntent } from '@shared/domain/intent';
+import type { CodexRunner } from './codexRunner';
 
 /**
  * Flat output schema. Structured outputs are strict: every property must be
@@ -35,8 +34,7 @@ const SYSTEM = `You interpret what a person wants to consume on the web right no
 const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 
 export async function interpretIntentLlm(
-  client: OpenAI,
-  model: string,
+  runner: CodexRunner,
   rawInput: string,
   prior: InterpretedIntent | null,
   prefSummary?: string
@@ -49,16 +47,8 @@ export async function interpretIntentLlm(
       .filter(Boolean)
       .join('\n\n');
 
-    const completion = await client.chat.completions.parse({
-      model,
-      messages: [
-        { role: 'system', content: SYSTEM },
-        { role: 'user', content: `${context ? context + '\n\n' : ''}User input: ${rawInput}` }
-      ],
-      response_format: zodResponseFormat(LlmIntentSchema, 'interpreted_intent')
-    });
-
-    const out = completion.choices[0]?.message.parsed;
+    const prompt = `${SYSTEM}\n\n--- INPUT ---\n${context ? context + '\n\n' : ''}User input: ${rawInput}`;
+    const out = await runner.run(LlmIntentSchema, prompt, { timeoutMs: 90_000 });
     if (!out) return null;
 
     const mapped = InterpretedIntentSchema.safeParse({

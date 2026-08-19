@@ -123,12 +123,11 @@ export interface InterpretEditResponse {
   error?: string;
 }
 
-/** How the app is authenticated for planning: GPT login, key, or nothing. */
+/** How the app is authenticated for planning. 'oauth' = a Codex sign-in. */
 export type AuthMethod = 'api-key' | 'env-key' | 'oauth' | 'none';
 
 export interface SettingsView {
-  hasApiKey: boolean;
-  /** Active credential source: explicit key, env, OAuth profile, or none. */
+  /** Active credential source. */
   authMethod: AuthMethod;
   authDetail: string;
   plannerModel: string;
@@ -144,7 +143,6 @@ export interface AuthLoginResult {
 }
 
 export interface SettingsPatch {
-  openaiApiKey?: string | null;
   plannerModel?: string;
   autoUpdate?: boolean;
   locale?: 'ko' | 'en';

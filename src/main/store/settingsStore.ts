@@ -3,17 +3,15 @@ import { z } from 'zod';
 import { JsonStore } from './jsonStore';
 
 export const SettingsSchema = z.object({
-  openaiApiKey: z.string().optional(),
-  plannerModel: z.string().default('gpt-5.5'),
+  /** Empty means "whatever Codex is configured to use". */
+  plannerModel: z.string().default(''),
   autoUpdate: z.boolean().default(true),
   locale: z.enum(['ko', 'en']).default('ko')
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;
 
-export type SettingsPatchInput = Omit<Partial<Settings>, 'openaiApiKey'> & {
-  openaiApiKey?: string | null;
-};
+export type SettingsPatchInput = Partial<Settings>;
 
 export interface SettingsStore {
   get(): Promise<Settings>;
@@ -38,7 +36,6 @@ export function createSettingsStore(dir: string): SettingsStore {
         if (value === undefined) continue;
         merged[key] = value;
       }
-      if (patch.openaiApiKey === null) delete merged.openaiApiKey;
       const next = SettingsSchema.parse(merged);
       await store.save(next);
       return next;

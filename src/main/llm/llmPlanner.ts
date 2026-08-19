@@ -1,7 +1,6 @@
-import type OpenAI from 'openai';
 import { z } from 'zod';
-import { zodResponseFormat } from 'openai/helpers/zod';
 import { newId, nowIso } from '@shared/domain/ids';
+import type { CodexRunner } from './codexRunner';
 import { catalogForPlanner } from '@shared/catalog/catalog';
 import { getPostPayload } from '@shared/domain/sourceItem';
 import type { PlanRequest, PlanResult } from '@shared/planner/plannerTypes';
@@ -134,8 +133,7 @@ const strip = (o: Record<string, unknown>): Record<string, unknown> =>
   Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null));
 
 export async function planLayoutLlm(
-  client: OpenAI,
-  model: string,
+  runner: CodexRunner,
   req: PlanRequest
 ): Promise<(PlanResult & { pageTitle?: string }) | null> {
   try {
@@ -153,15 +151,9 @@ export async function planLayoutLlm(
       learnedPreferences: req.prefSummary || undefined,
       recipeShape: req.recipeShape
     };
-    const completion = await client.chat.completions.parse({
-      model,
-      messages: [
-        { role: 'system', content: SYSTEM },
-        { role: 'user', content: JSON.stringify(context) }
-      ],
-      response_format: zodResponseFormat(LlmPlanSchema, 'layout_plan')
-    });
-    const out = completion.choices[0]?.message.parsed;
+    // Composing a whole page is the heavy call — give it room.
+    const prompt = `${SYSTEM}\n\n--- INPUT ---\n${JSON.stringify(context)}`;
+    const out = await runner.run(LlmPlanSchema, prompt, { timeoutMs: 180_000 });
     if (!out || out.blocks.length === 0) return null;
 
     const rawPlan = {
@@ -186,7 +178,8 @@ export async function planLayoutLlm(
       },
       plannerMetadata: {
         planner: 'llm' as const,
-        model,
+        // The Codex CLI owns the model choice; the app never names one.
+        model: 'codex',
         promptVersion: 'v1',
         generatedAt: nowIso(),
         diagnostics: []

@@ -170,14 +170,10 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   const multiSource = followRecipe
     ? []
     : clusterByTopic(bodyPool, { minSources: 2, maxClusters: 6 });
-  const inMulti = new Set(multiSource.flatMap((c) => c.items.map((it) => it.id)));
-  const singleSource = followRecipe
-    ? []
-    : clusterByTopic(bodyPool.filter((it) => !inMulti.has(it.id)), {
-        minSources: 1,
-        maxClusters: 6
-      }).filter((c) => c.items.length >= 2);
-  const bodyClusters = [...multiSource, ...singleSource];
+  // No single-source cards: one card holding only one outlet reads as "this
+  // section is that site". Those items fall through to the mixed cards below,
+  // where they alternate with everything else.
+  const bodyClusters = multiSource;
 
   const clusterBlocks: ComponentBlock[] = [];
   const clustered = new Set<string>();
@@ -202,7 +198,9 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   // Leftovers become mixed cards too, never per-kind sections.
   const MIXED_CAP = 8;
   const leftovers = interleaveBySource(bodyPool.filter((it) => !clustered.has(it.id)));
-  const mixedLabels = followRecipe ? [] : ['그 밖에 눈에 띈 것들', '더 둘러보기'];
+  const mixedLabels = followRecipe
+    ? []
+    : ['그 밖에 눈에 띈 것들', '더 둘러보기', '이어서 볼 것들', '마저 훑어보기'];
   for (let i = 0; i < mixedLabels.length; i++) {
     const slice = leftovers.slice(i * MIXED_CAP, (i + 1) * MIXED_CAP);
     if (slice.length < 2) break;

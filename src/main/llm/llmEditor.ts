@@ -1,8 +1,7 @@
-﻿import type OpenAI from 'openai';
-import { z } from 'zod';
-import { zodResponseFormat } from 'openai/helpers/zod';
+﻿import { z } from 'zod';
 import { SessionCommandSchema, type SessionCommand } from '@shared/domain/commands';
 import type { SessionDigest } from '@shared/ipc';
+import type { CodexRunner } from './codexRunner';
 
 /** Strict structured outputs: every field required, "n/a" expressed as null. */
 const LlmEditCommandSchema = z.object({
@@ -107,24 +106,13 @@ function mapCommand(
 }
 
 export async function interpretEditLlm(
-  client: OpenAI,
-  model: string,
+  runner: CodexRunner,
   utterance: string,
   digest: SessionDigest
 ): Promise<{ commands: SessionCommand[]; explanation: string } | null> {
   try {
-    const completion = await client.chat.completions.parse({
-      model,
-      messages: [
-        { role: 'system', content: SYSTEM },
-        {
-          role: 'user',
-          content: `Page digest: ${JSON.stringify(digest)}\n\nEdit request: ${utterance}`
-        }
-      ],
-      response_format: zodResponseFormat(LlmEditSchema, 'edit_commands')
-    });
-    const out = completion.choices[0]?.message.parsed;
+    const prompt = `${SYSTEM}\n\n--- INPUT ---\nPage digest: ${JSON.stringify(digest)}\n\nEdit request: ${utterance}`;
+    const out = await runner.run(LlmEditSchema, prompt, { timeoutMs: 90_000 });
     if (!out) return null;
     const commands = out.commands
       .map((c) => mapCommand(c, digest))
