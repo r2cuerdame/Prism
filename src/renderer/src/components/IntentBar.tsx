@@ -8,9 +8,9 @@ const PHASE_LABEL: Record<string, string> = {
 };
 
 /**
- * The Intent Bar: address-bar shaped, but it accepts goals, moods, questions
- * and follow-ups — not URLs (GOAL.md §1). 편집 모드의 문장도 직접 조작과 같은
- * 상태를 편집한다.
+ * ChatGPT-style bottom composer, but it is an Intent Bar: goals, moods,
+ * follow-ups AND page edits all land here — the bar decides, and both paths
+ * edit the same Session state (GOAL.md §1, §4).
  */
 export default function IntentBar(): ReactElement {
   const state = useAppState();
@@ -23,36 +23,17 @@ export default function IntentBar(): ReactElement {
     const value = text.trim();
     if (value === '' || busy) return;
     setText('');
-    if (state.intentMode === 'edit') {
-      await appStore.editWithLanguage(value);
-    } else {
-      await appStore.generate(value);
-    }
+    await appStore.submitUtterance(value);
   };
 
   return (
-    <div className="intent-bar-wrap">
-      <div className="intent-bar">
-        <div className="intent-mode" role="tablist" aria-label="입력 모드">
-          <button
-            role="tab"
-            aria-selected={state.intentMode === 'generate'}
-            className={state.intentMode === 'generate' ? 'on' : ''}
-            onClick={() => appStore.setIntentMode('generate')}
-            title="의도를 실행해 페이지를 생성/갱신"
-          >
-            의도
-          </button>
-          <button
-            role="tab"
-            aria-selected={state.intentMode === 'edit'}
-            className={state.intentMode === 'edit' ? 'on' : ''}
-            onClick={() => appStore.setIntentMode('edit')}
-            title="말로 현재 페이지를 편집 (드래그·삭제와 같은 상태를 수정)"
-          >
-            편집
-          </button>
+    <div className="composer">
+      {busy && (
+        <div className="intent-progress" role="status">
+          <span className="spinner" /> {PHASE_LABEL[busy] ?? '작업 중…'}
         </div>
+      )}
+      <div className="intent-bar">
         <input
           className="intent-input"
           value={text}
@@ -61,8 +42,8 @@ export default function IntentBar(): ReactElement {
             if (e.key === 'Enter' && !e.nativeEvent.isComposing) void submit();
           }}
           placeholder={
-            state.intentMode === 'edit'
-              ? '예: 뉴스 줄여줘 · 영상을 맨 위로 · 커뮤니티 빼줘'
+            hasPlan
+              ? '이어서 말하세요 — 새 의도도, "뉴스 줄여줘" 같은 편집도 다 돼요'
               : '무엇을 보고 싶나요? 예: 심심해 · AI 뉴스와 영상 · 오늘 게임 소식'
           }
           aria-label="의도 입력"
@@ -72,8 +53,9 @@ export default function IntentBar(): ReactElement {
           className="intent-go"
           onClick={() => void submit()}
           disabled={busy !== null || text.trim() === ''}
+          title="입력 실행 (Enter)"
         >
-          {state.intentMode === 'edit' ? '편집' : '생성'}
+          ➤
         </button>
         <button
           className="intent-regen"
@@ -84,11 +66,9 @@ export default function IntentBar(): ReactElement {
           ↻ 재생성
         </button>
       </div>
-      {busy && (
-        <div className="intent-progress" role="status">
-          <span className="spinner" /> {PHASE_LABEL[busy] ?? '작업 중…'}
-        </div>
-      )}
+      <p className="composer-hint">
+        블록은 드래그·리사이즈·📌고정이 되고, 말로 한 편집과 같은 상태를 공유해요
+      </p>
     </div>
   );
 }

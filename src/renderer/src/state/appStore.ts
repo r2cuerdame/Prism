@@ -48,7 +48,6 @@ export interface AppState {
   updater: UpdaterStatus;
   panel: PanelKind;
   inspectBlockId: string | null;
-  intentMode: 'generate' | 'edit';
   toast: string | null;
 }
 
@@ -65,7 +64,6 @@ const initialState: AppState = {
   updater: { state: 'idle' },
   panel: null,
   inspectBlockId: null,
-  intentMode: 'generate',
   toast: null
 };
 
@@ -161,11 +159,19 @@ class AppStore {
   dispatch(cmd: SessionCommand, opts?: { silent?: boolean }): void {
     const act = this.active();
     if (!act) return;
-    const prev = act.entry.history.present;
+    this.dispatchTo(act.id, cmd, opts);
+  }
+
+  /** Commands always land on the session they were produced for, even if the
+   * user switched sessions while an async generate/edit was in flight. */
+  dispatchTo(sessionId: string, cmd: SessionCommand, opts?: { silent?: boolean }): void {
+    const entry = this.state.sessions[sessionId];
+    if (!entry) return;
+    const prev = entry.history.present;
     const at = nowIso();
-    const nextHistory = pushHistory(act.entry.history, cmd, at);
-    if (nextHistory === act.entry.history) return;
-    this.patchEntry(act.id, { history: nextHistory });
+    const nextHistory = pushHistory(entry.history, cmd, at);
+    if (nextHistory === entry.history) return;
+    this.patchEntry(sessionId, { history: nextHistory });
     if (!opts?.silent) {
       const signals = inferPreferenceSignals(prev, cmd, at);
       if (signals.length > 0) {
@@ -239,10 +245,11 @@ class AppStore {
       this.toast('재생성할 의도가 아직 없어요. 먼저 의도를 입력해 주세요.');
       return;
     }
-    this.dispatch({ type: 'set_status', status: 'planning' }, { silent: true });
-    this.patchEntry(act.id, { progress: 'interpreting' });
+    const sid = act.id;
+    this.dispatchTo(sid, { type: 'set_status', status: 'planning' }, { silent: true });
+    this.patchEntry(sid, { progress: 'interpreting' });
     const res = await window.gptb.generate({
-      sessionId: act.id,
+      sessionId: sid,
       rawInput,
       priorInterpretation: prior,
       preserved: { dockedBlocks: this.dockedBlocks(state) },
@@ -250,20 +257,24 @@ class AppStore {
       keepItems: this.keepItems(state),
       recipeContext: recipe ? { recipeId: recipe.id, name: recipe.name } : null
     });
-    this.patchEntry(act.id, { progress: null, reports: res.reports, issues: res.issues });
+    this.patchEntry(sid, { progress: null, reports: res.reports, issues: res.issues });
     if (!res.ok || !res.plan) {
-      this.dispatch(
+      this.dispatchTo(
+        sid,
         { type: 'set_status', status: 'failed', detail: res.error ?? '생성에 실패했어요.' },
         { silent: true }
       );
       this.toast(res.error ?? '생성에 실패했어요.');
       return;
     }
-    if (res.intent) this.dispatch({ type: 'add_intent', intent: res.intent }, { silent: true });
-    this.dispatch({ type: 'apply_plan', plan: res.plan, items: res.items }, { silent: true });
+    if (res.intent) {
+      this.dispatchTo(sid, { type: 'add_intent', intent: res.intent }, { silent: true });
+    }
+    this.dispatchTo(sid, { type: 'apply_plan', plan: res.plan, items: res.items }, { silent: true });
     const failedReports = res.reports.filter((r) => !r.ok);
     if (failedReports.length > 0) {
-      this.dispatch(
+      this.dispatchTo(
+        sid,
         {
           type: 'set_status',
           status: 'partial',
@@ -296,7 +307,7 @@ class AppStore {
       this.toast(res.error ?? '블록 재생성에 실패했어요.');
       return;
     }
-    this.dispatch({ type: 'replace_block', blockId, block: res.block, items: res.items });
+    this.dispatchTo(act.id, { type: 'replace_block', blockId, block: res.block, items: res.items });
     this.toast('블록을 새로운 콘텐츠로 재생성했어요.');
   }
 
@@ -327,31 +338,37 @@ class AppStore {
     };
   }
 
-  async editWithLanguage(utterance: string): Promise<void> {
+  /**
+   * ONE input, no modes: the bar decides. Edit-shaped utterances become
+   * SessionCommands (rules first, then the LLM editor); everything else is a
+   * new/follow-up Intent. Both paths mutate the same Session state.
+   */
+  async submitUtterance(utterance: string): Promise<void> {
     const act = this.active();
-    if (!act) return;
+    if (!act) {
+      return;
+    }
     const state = act.entry.history.present;
+    const sid = act.id;
     if (!state.plan || state.plan.blocks.length === 0) {
-      this.toast('편집할 페이지가 아직 없어요. 먼저 의도를 실행해 보세요.');
+      await this.generate(utterance);
       return;
     }
     const ruleCommands = parseEditRules(utterance, state);
     if (ruleCommands && ruleCommands.length > 0) {
-      for (const cmd of ruleCommands) this.dispatch(cmd);
+      for (const cmd of ruleCommands) this.dispatchTo(sid, cmd);
       this.toast('페이지를 편집했어요.');
       return;
     }
-    const res = await window.gptb.interpretEdit({ utterance, digest: this.digest(state) });
-    if (res.ok && res.commands.length > 0) {
-      for (const cmd of res.commands) this.dispatch(cmd);
-      this.toast(res.explanation || '페이지를 편집했어요.');
-      return;
+    if (this.state.settings?.hasApiKey) {
+      const res = await window.gptb.interpretEdit({ utterance, digest: this.digest(state) });
+      if (res.ok && res.commands.length > 0) {
+        for (const cmd of res.commands) this.dispatchTo(sid, cmd);
+        this.toast(res.explanation || '페이지를 편집했어요.');
+        return;
+      }
     }
-    this.toast(res.explanation || '편집 요청을 이해하지 못했어요.');
-  }
-
-  setIntentMode(mode: 'generate' | 'edit'): void {
-    this.set({ intentMode: mode });
+    await this.generate(utterance);
   }
 
   // ── Recipes ──────────────────────────────────────────────────────────

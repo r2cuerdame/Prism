@@ -1,8 +1,7 @@
 import { useEffect, type ReactElement } from 'react';
 import { appStore, useAppState } from './state/appStore';
 import IntentBar from './components/IntentBar';
-import SessionTabs from './components/SessionTabs';
-import RecipeShelf from './components/RecipeShelf';
+import Sidebar from './components/Sidebar';
 import UpdateBanner from './components/UpdateBanner';
 import GeneratedView from './components/GeneratedView';
 import EmptyState from './components/EmptyState';
@@ -30,7 +29,10 @@ export default function App(): ReactElement {
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         appStore.undo();
-      } else if (e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+      } else if (
+        e.ctrlKey &&
+        (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))
+      ) {
         e.preventDefault();
         appStore.redo();
       }
@@ -45,39 +47,9 @@ export default function App(): ReactElement {
 
   return (
     <div className="app">
-      <UpdateBanner />
-      <header className="app-header">
-        <div className="brand" title="Generated Personal Territory Browser">
-          <span className="brand-mark">◍</span> GPTBrowser
-        </div>
-        <SessionTabs />
-        <div className="header-tools">
-          <button
-            title="히스토리 (실행 취소 · 생성 스냅샷 · 저장된 세션)"
-            className={state.panel === 'history' ? 'on' : ''}
-            onClick={() => appStore.openPanel(state.panel === 'history' ? null : 'history')}
-          >
-            🕘
-          </button>
-          <button
-            title="학습된 선호"
-            className={state.panel === 'prefs' ? 'on' : ''}
-            onClick={() => appStore.openPanel(state.panel === 'prefs' ? null : 'prefs')}
-          >
-            ♡
-          </button>
-          <button
-            title="설정"
-            className={state.panel === 'settings' ? 'on' : ''}
-            onClick={() => appStore.openPanel(state.panel === 'settings' ? null : 'settings')}
-          >
-            ⚙
-          </button>
-        </div>
-      </header>
-      <IntentBar />
-      <RecipeShelf />
-      <div className="app-body">
+      <Sidebar />
+      <div className="main-col">
+        <UpdateBanner />
         <main className="canvas">
           {session && hasPlan ? (
             <>
@@ -101,23 +73,24 @@ export default function App(): ReactElement {
             <EmptyState />
           )}
         </main>
-        {state.panel && (
-          <aside className="side-panel">
-            <div className="side-panel-head">
-              <h2>{PANEL_TITLE[state.panel]}</h2>
-              <button aria-label="패널 닫기" onClick={() => appStore.openPanel(null)}>
-                ×
-              </button>
-            </div>
-            <div className="side-panel-body">
-              {state.panel === 'inspect' && <InspectPanel />}
-              {state.panel === 'history' && <HistoryPanel />}
-              {state.panel === 'prefs' && <PreferencesPanel />}
-              {state.panel === 'settings' && <SettingsPanel />}
-            </div>
-          </aside>
-        )}
+        <IntentBar />
       </div>
+      {state.panel && (
+        <aside className="side-panel">
+          <div className="side-panel-head">
+            <h2>{PANEL_TITLE[state.panel]}</h2>
+            <button aria-label="패널 닫기" onClick={() => appStore.openPanel(null)}>
+              ×
+            </button>
+          </div>
+          <div className="side-panel-body">
+            {state.panel === 'inspect' && <InspectPanel />}
+            {state.panel === 'history' && <HistoryPanel />}
+            {state.panel === 'prefs' && <PreferencesPanel />}
+            {state.panel === 'settings' && <SettingsPanel />}
+          </div>
+        </aside>
+      )}
       {state.toast && (
         <div className="toast" role="status">
           {state.toast}
