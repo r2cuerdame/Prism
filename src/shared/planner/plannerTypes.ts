@@ -2,6 +2,7 @@ import type { InterpretedIntent } from '../domain/intent';
 import type { ComponentBlock, LayoutPlan } from '../domain/layoutPlan';
 import type { SourceItem } from '../domain/sourceItem';
 import type { CompositionHints } from '../domain/session';
+import type { RecipeLayoutSlot } from '../domain/recipe';
 
 export type { InterpretedIntent };
 
@@ -18,7 +19,7 @@ export interface PlanRequest {
   /** Saved Recipe shape to follow when regenerating from a Recipe. */
   recipeShape?: {
     name: string;
-    layoutTemplate: { componentType: string; span: number }[];
+    layoutTemplate: RecipeLayoutSlot[];
     density: 'compact' | 'comfortable';
   };
 }

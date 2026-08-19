@@ -74,7 +74,14 @@ const GenerateRequestSchema = z.object({
       name: z.string(),
       layoutTemplate: z
         .array(
-          z.object({ componentType: z.string(), span: z.number().int().min(1).max(12) })
+          z.object({
+            componentType: z.string(),
+            span: z.number().int().min(1).max(12),
+            title: z.string().max(200).optional(),
+            docked: z.boolean().optional(),
+            locked: z.boolean().optional(),
+            props: z.record(z.string(), z.unknown()).optional()
+          })
         )
         .max(30),
       density: z.enum(['compact', 'comfortable'])

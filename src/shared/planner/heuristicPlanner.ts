@@ -70,11 +70,18 @@ function clusterAngle(cluster: TopicCluster): string {
 }
 
 /**
- * Reorder generated blocks to follow a saved Recipe's layout template:
- * template-listed component types first (in template order, template spans
- * clamped to catalog bounds), then everything else the fresh items produced.
- * Recipes save shape, never content. source_list is appended later and always
- * stays last, so template slots for it are ignored here.
+ * Rebuild the page from a saved Recipe's layout template: template order,
+ * template spans (clamped to catalog bounds) and the shaping the user gave each
+ * slot — renamed title, dock/lock pins, and props merged OVER what the planner
+ * produced so a saved maxItems/density actually applies. Recipes save shape,
+ * never content.
+ *
+ * The template IS the page: a component the template does not list is dropped
+ * rather than appended, or a section the user deleted would return on every
+ * reopen. source_list is appended later and always stays last, so template
+ * slots for it are ignored here. The one exception is a template that nothing
+ * on this run can fill — then the planner's own page stands, since an empty
+ * page honors no shaping either.
  */
 function applyRecipeShape(
   blocks: ComponentBlock[],
@@ -91,9 +98,17 @@ function applyRecipeShape(
     const span = entry
       ? Math.min(entry.maxSpan, Math.max(entry.minSpan, Math.round(slot.span)))
       : block.layout.span;
-    ordered.push({ ...block, layout: { ...block.layout, span } });
+    const props: Record<string, unknown> = { ...block.props, ...(slot.props ?? {}) };
+    if (slot.title !== undefined) props.title = slot.title;
+    ordered.push({
+      ...block,
+      props,
+      layout: { ...block.layout, span },
+      docked: slot.docked ?? block.docked,
+      locked: slot.locked ?? block.locked
+    });
   }
-  return [...ordered, ...rest];
+  return ordered.length > 0 ? ordered : blocks;
 }
 
 /**
@@ -166,7 +181,11 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   const bodyPool = pool.filter((it) => !anchorUsed.has(it.id));
   // A saved Recipe shape wins over topic composition — the user shaped that
   // page themselves, so honor their sections instead of re-deriving a body.
-  const followRecipe = req.recipeShape !== undefined;
+  // A template that saved topic cards is the exception: it needs cards to fill
+  // its slots, so that page stays topic-composed.
+  const recipeWantsClusters =
+    req.recipeShape?.layoutTemplate.some((s) => s.componentType === 'topic_cluster') ?? false;
+  const followRecipe = req.recipeShape !== undefined && !recipeWantsClusters;
   const multiSource = followRecipe
     ? []
     : clusterByTopic(bodyPool, { minSources: 2, maxClusters: 6 });

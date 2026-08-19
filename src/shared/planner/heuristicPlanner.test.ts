@@ -371,8 +371,104 @@ describe('heuristicPlan cross-source synthesis', () => {
     expect(player.layout.span).toBe(6);
     expect(t[t.length - 1]).toBe('source_list');
     expect(t.filter((x) => x === 'source_list')).toHaveLength(1);
-    // synthesis blocks are still on the page, appended after the template
-    expect(t).toContain('synthesis_brief');
+    // The template is the page: even the synthesis opener is dropped when the
+    // saved shape does not list it.
+    expect(t).not.toContain('synthesis_brief');
+    expect(t).toEqual(['community_posts', 'article_list', 'video_player', 'source_list']);
+    expectCatalogConstraints(plan);
+  });
+
+  it('applies a template slot title, pins and props to the block filling it', () => {
+    const items = multiSourceItems();
+    const { plan } = heuristicPlan(
+      reqOf(items, {
+        recipeShape: {
+          name: '나만의 아침',
+          layoutTemplate: [
+            {
+              componentType: 'community_posts',
+              span: 12,
+              title: '오늘의 토론',
+              docked: true,
+              locked: true,
+              props: { maxItems: 3, showMeta: false }
+            },
+            { componentType: 'article_list', span: 6 }
+          ],
+          density: 'comfortable'
+        }
+      })
+    );
+    const posts = plan.blocks.find((b) => b.componentType === 'community_posts');
+    expect(posts).toBeDefined();
+    expect(posts!.props.title).toBe('오늘의 토론');
+    expect(posts!.props.maxItems).toBe(3);
+    expect(posts!.props.showMeta).toBe(false);
+    expect(posts!.docked).toBe(true);
+    expect(posts!.locked).toBe(true);
+    expect(posts!.layout.span).toBe(12);
+    // A slot with no shaping leaves the planner's own props alone.
+    const articles = plan.blocks.find((b) => b.componentType === 'article_list');
+    expect(articles!.props.title).toBeUndefined();
+    expect(articles!.docked).toBe(false);
+    expect(articles!.locked).toBe(false);
+    expectCatalogConstraints(plan);
+  });
+
+  it('never brings back a component the template left out', () => {
+    const items = multiSourceItems();
+    const { plan } = heuristicPlan(
+      reqOf(items, {
+        recipeShape: {
+          name: '기사만',
+          layoutTemplate: [{ componentType: 'article_list', span: 12 }],
+          density: 'comfortable'
+        }
+      })
+    );
+    const t = types(plan);
+    // Everything the user deleted before saving stays deleted on reopen.
+    expect(t).toEqual(['article_list', 'source_list']);
+    expect(t[t.length - 1]).toBe('source_list');
+    expectCatalogConstraints(plan);
+  });
+
+  it('fills topic_cluster slots when the saved page was topic-composed', () => {
+    const items = multiSourceItems();
+    const { plan } = heuristicPlan(
+      reqOf(items, {
+        recipeShape: {
+          name: '주제 중심',
+          layoutTemplate: [
+            { componentType: 'topic_cluster', span: 12, title: '내가 고른 묶음' },
+            { componentType: 'synthesis_brief', span: 12 }
+          ],
+          density: 'comfortable'
+        }
+      })
+    );
+    const t = types(plan);
+    expect(t).toEqual(['topic_cluster', 'synthesis_brief', 'source_list']);
+    expect(plan.blocks[0]!.props.title).toBe('내가 고른 묶음');
+    // The cluster's own topic is regenerated, never restored from the Recipe.
+    expect(String(plan.blocks[0]!.props.topic).length).toBeGreaterThan(0);
+    expectCatalogConstraints(plan);
+  });
+
+  it('falls back to the planner page when no template slot can be filled', () => {
+    const items = multiSourceItems();
+    const { plan } = heuristicPlan(
+      reqOf(items, {
+        recipeShape: {
+          name: '읽기 전용',
+          layoutTemplate: [{ componentType: 'reader', span: 8 }],
+          density: 'comfortable'
+        }
+      })
+    );
+    // An empty page honors no shaping either — the planner's own page stands.
+    expect(plan.blocks.length).toBeGreaterThan(1);
+    expect(types(plan)[types(plan).length - 1]).toBe('source_list');
     expectCatalogConstraints(plan);
   });
 

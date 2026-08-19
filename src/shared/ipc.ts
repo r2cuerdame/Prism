@@ -3,7 +3,7 @@ import type { ComponentBlock, LayoutPlan } from './domain/layoutPlan';
 import type { SourceItem } from './domain/sourceItem';
 import type { CompositionHints, GeneratedSnapshot } from './domain/session';
 import type { SessionCommand } from './domain/commands';
-import type { Recipe } from './domain/recipe';
+import type { Recipe, RecipeLayoutSlot } from './domain/recipe';
 import type { PreferenceSignal } from './domain/preference';
 import type { Provenance } from './domain/provenance';
 
@@ -58,7 +58,8 @@ export interface GenerateRequest {
 export interface RecipeContext {
   recipeId: string;
   name: string;
-  layoutTemplate: { componentType: string; span: number }[];
+  /** Full slots (title/pins/props), so the user's shaping survives the boundary. */
+  layoutTemplate: RecipeLayoutSlot[];
   density: 'compact' | 'comfortable';
 }
 

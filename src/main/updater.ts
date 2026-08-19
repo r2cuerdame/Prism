@@ -6,7 +6,7 @@ const { autoUpdater } = electronUpdater;
 
 export interface UpdaterHandle {
   check(): Promise<UpdaterStatus>;
-  install(): void;
+  install(): Promise<void>;
   startPeriodic(): void;
   dispose(): void;
 }
@@ -32,8 +32,11 @@ export function createUpdater(opts: {
   const packaged = app.isPackaged;
 
   if (packaged) {
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    // Both are re-decided from the user's setting on every check — leaving
+    // them true here would keep downloading and installing after the user
+    // turned the toggle off, which is what the checkbox promises not to do.
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.on('checking-for-update', () => emit({ state: 'checking' }));
     autoUpdater.on('update-available', (info) =>
       emit({ state: 'available', version: info.version })
@@ -72,6 +75,11 @@ export function createUpdater(opts: {
         simulate();
         return last;
       }
+      // With the toggle off a check still reports what is available, but
+      // nothing is fetched or staged until the user asks for it.
+      const auto = await opts.autoUpdateEnabled();
+      autoUpdater.autoDownload = auto;
+      autoUpdater.autoInstallOnAppQuit = auto;
       try {
         await autoUpdater.checkForUpdates();
       } catch (err) {
@@ -82,12 +90,30 @@ export function createUpdater(opts: {
       }
       return last;
     },
-    install(): void {
+    async install(): Promise<void> {
       if (!packaged) {
         emit({ state: 'idle', message: '개발 모드에서는 설치를 건너뜁니다' });
         return;
       }
-      if (last.state === 'downloaded') autoUpdater.quitAndInstall();
+      if (last.state === 'downloaded') {
+        autoUpdater.quitAndInstall();
+        return;
+      }
+      // Pressing install with auto-download off means "yes, get it now".
+      if (last.state === 'available') {
+        try {
+          await autoUpdater.downloadUpdate();
+          // `last` was reassigned by the update-downloaded event during the
+          // await; widen it so the narrowing from the check above is dropped.
+          const after: UpdaterStatus = last;
+          if (after.state === 'downloaded') autoUpdater.quitAndInstall();
+        } catch (err) {
+          emit({
+            state: 'error',
+            message: err instanceof Error ? err.message.slice(0, 200) : '업데이트 내려받기 실패'
+          });
+        }
+      }
     },
     startPeriodic(): void {
       const run = async (): Promise<void> => {

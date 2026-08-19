@@ -3,7 +3,7 @@ import { appStore, useAppState } from '@renderer/state/appStore';
 
 /** Auto-update surface: GitHub 릴리스에서 받아 재시작으로 설치. */
 export default function UpdateBanner(): ReactElement | null {
-  const { updater } = useAppState();
+  const { updater, settings } = useAppState();
   if (updater.state === 'idle' || updater.state === 'not-available') return null;
 
   let body: ReactElement;
@@ -12,7 +12,17 @@ export default function UpdateBanner(): ReactElement | null {
       body = <span>업데이트 확인 중…</span>;
       break;
     case 'available':
-      body = <span>새 버전 {updater.version} 발견 — 백그라운드에서 내려받는 중이에요.</span>;
+      // With auto-update off nothing is fetched until the user says so.
+      body = settings?.autoUpdate === false ? (
+        <span>
+          새 버전 {updater.version} 이 있어요.{' '}
+          <button className="update-install" onClick={() => appStore.installUpdate()}>
+            지금 받기
+          </button>
+        </span>
+      ) : (
+        <span>새 버전 {updater.version} 발견 — 백그라운드에서 내려받는 중이에요.</span>
+      );
       break;
     case 'downloading':
       body = (

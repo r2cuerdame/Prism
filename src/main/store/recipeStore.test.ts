@@ -17,6 +17,7 @@ function makeRecipe(id: string, name: string, at: string): Recipe {
     sourcePreferences: { include: [], exclude: [] },
     compositionPreferences: { balance: {}, density: 'comfortable' },
     layoutTemplate: [],
+    compositionHints: { mix: {}, notes: [] },
     preferenceScope: 'recipe',
     createdAt: at,
     updatedAt: at
@@ -46,6 +47,60 @@ describe('recipeStore', () => {
     await store.save(makeRecipe('r2', '둘째', '2020-01-01T00:00:00.000Z'));
     const list = await store.list();
     expect(list.map((r) => r.id)).toEqual(['r2', 'r1']);
+  });
+
+  it('still loads a recipes.json written by the older schema', async () => {
+    const dir = await tmpDir();
+    // Exactly what the previous version wrote: bare slots, no compositionHints.
+    const legacy = [
+      {
+        id: 'r_old',
+        name: '예전 레시피',
+        intentTemplate: '아침 뉴스',
+        sourcePreferences: { include: [], exclude: [] },
+        compositionPreferences: { balance: {}, density: 'comfortable' },
+        layoutTemplate: [
+          { componentType: 'article_list', span: 6 },
+          { componentType: 'source_list', span: 12 }
+        ],
+        preferenceScope: 'recipe',
+        createdAt: '2020-01-01T00:00:00.000Z',
+        updatedAt: '2020-01-01T00:00:00.000Z'
+      }
+    ];
+    await fs.writeFile(path.join(dir, 'recipes.json'), JSON.stringify(legacy), 'utf8');
+    const list = await createRecipeStore(dir).list();
+    expect(list).toHaveLength(1);
+    expect(list[0].layoutTemplate.map((s) => s.componentType)).toEqual([
+      'article_list',
+      'source_list'
+    ]);
+    expect(list[0].compositionHints).toEqual({ mix: {}, notes: [] });
+  });
+
+  it('round-trips a fully shaped recipe', async () => {
+    const dir = await tmpDir();
+    const rich: Recipe = {
+      ...makeRecipe('r_rich', '저녁 믹스', '2020-01-01T00:00:00.000Z'),
+      layoutTemplate: [
+        {
+          componentType: 'community_posts',
+          span: 12,
+          title: '오늘의 토론',
+          docked: true,
+          locked: true,
+          props: { maxItems: 4, showMeta: false }
+        },
+        { componentType: 'article_list', span: 6, props: { density: 'compact' } }
+      ],
+      compositionPreferences: { balance: { video: 0.2 }, density: 'compact' },
+      compositionHints: { mix: { video: 'less' }, notes: ['영상 줄여', '더 짧게'] }
+    };
+    await createRecipeStore(dir).save(rich);
+    const [loaded] = await createRecipeStore(dir).list();
+    expect(loaded.layoutTemplate).toEqual(rich.layoutTemplate);
+    expect(loaded.compositionHints).toEqual(rich.compositionHints);
+    expect(loaded.compositionPreferences.density).toBe('compact');
   });
 
   it('removes by id', async () => {

@@ -4,8 +4,8 @@ import { createSessionState, type GeneratedSnapshot, type SessionState } from '@
 import type { SessionCommand } from '@shared/domain/commands';
 import type { InterpretedIntent } from '@shared/domain/intent';
 import type { ComponentBlock } from '@shared/domain/layoutPlan';
-import type { SourceItem } from '@shared/domain/sourceItem';
-import type { Recipe } from '@shared/domain/recipe';
+import { SOURCE_ITEM_KINDS, type SourceItem } from '@shared/domain/sourceItem';
+import type { Recipe, RecipeLayoutSlot } from '@shared/domain/recipe';
 import type { PreferenceSignal } from '@shared/domain/preference';
 import {
   createHistory,
@@ -55,6 +55,45 @@ export interface AppState {
 }
 
 type Listener = () => void;
+
+/**
+ * Props written from THIS run's items rather than chosen by the user. Saving
+ * them into a Recipe would freeze content — the one thing a Recipe must never
+ * do (GOAL.md § Recipe).
+ */
+const GENERATED_PROPS = new Set(['points', 'topic', 'angle']);
+
+/**
+ * The shaping a block carries, narrowed to props the catalog declares (props an
+ * NL edit invented would be stripped by the plan validator anyway) and stripped
+ * of generated content. `title` is carried by the slot's own field.
+ */
+function shapingProps(block: ComponentBlock): Record<string, unknown> | undefined {
+  const entry = getCatalogEntry(block.componentType);
+  if (!entry) return undefined;
+  const parsed = entry.propsSchema.safeParse(block.props);
+  if (!parsed.success) return undefined;
+  const kept: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(parsed.data as Record<string, unknown>)) {
+    if (key === 'title' || value === undefined || GENERATED_PROPS.has(key)) continue;
+    kept[key] = value;
+  }
+  return Object.keys(kept).length > 0 ? kept : undefined;
+}
+
+/** One block as a Recipe slot: its position, size and everything the user set. */
+function toLayoutSlot(block: ComponentBlock): RecipeLayoutSlot {
+  const title = typeof block.props.title === 'string' ? block.props.title.trim() : '';
+  const props = shapingProps(block);
+  return {
+    componentType: block.componentType,
+    span: block.layout.span,
+    ...(title !== '' ? { title } : {}),
+    ...(block.docked ? { docked: true } : {}),
+    ...(block.locked ? { locked: true } : {}),
+    ...(props ? { props } : {})
+  };
+}
 
 const initialState: AppState = {
   order: [],
@@ -535,7 +574,12 @@ class AppStore {
 
   // ── Recipes ──────────────────────────────────────────────────────────
 
-  async saveCurrentAsRecipe(name: string): Promise<void> {
+  /**
+   * Save the page AS SHAPED: order, spans, renamed sections, pins, per-block
+   * props and the session's tuning memory. `existingId` re-saves onto that
+   * Recipe (the store upserts by id) instead of minting a duplicate.
+   */
+  async saveCurrentAsRecipe(name: string, existingId?: string): Promise<void> {
     const act = this.active();
     if (!act) return;
     const state = act.entry.history.present;
@@ -548,32 +592,51 @@ class AppStore {
       .reverse()
       .find((i) => i.rawInput !== '[재생성]');
     const now = nowIso();
+    const existing =
+      existingId === undefined ? undefined : this.state.recipes.find((r) => r.id === existingId);
+    // Density is a per-block choice the user can flip on the article list, so
+    // read it back from there rather than assuming the default.
+    const density = state.plan.blocks.find((b) => b.componentType === 'article_list')?.props
+      .density;
     const recipe: Recipe = {
-      id: newId('rcp'),
+      id: existingId ?? newId('rcp'),
       name,
       intentTemplate: lastRealIntent?.rawInput ?? interpretation.goal,
       sourcePreferences: interpretation.sourceHints,
       compositionPreferences: {
         balance: interpretation.contentBalance,
-        density: 'comfortable'
+        density: density === 'compact' ? 'compact' : 'comfortable'
       },
-      layoutTemplate: state.plan.blocks.map((b) => ({
-        componentType: b.componentType,
-        span: b.layout.span
-      })),
+      layoutTemplate: state.plan.blocks.map(toLayoutSlot),
+      compositionHints: state.compositionHints,
       preferenceScope: 'recipe',
       createdFromSessionId: state.id,
-      createdAt: now,
+      createdAt: existing?.createdAt ?? now,
       updatedAt: now
     };
     const recipes = await window.gptb.recipesSave(recipe);
     this.set({ recipes });
-    this.toast(`레시피 "${name}" 저장 완료. 열 때마다 새 콘텐츠로 재생성돼요.`);
+    this.toast(
+      existing
+        ? `레시피 "${name}"을(를) 지금 페이지 모양으로 업데이트했어요.`
+        : `레시피 "${name}" 저장 완료. 열 때마다 새 콘텐츠로 재생성돼요.`
+    );
   }
 
   async runRecipe(recipe: Recipe): Promise<void> {
     const sid = this.newSession();
     this.dispatchTo(sid, { type: 'rename_session', title: recipe.name }, { silent: true });
+    // Replay the saved tuning onto the new Session BEFORE generating: generate()
+    // reads hints from session state, so seeding afterwards would arrive a page
+    // too late. Mix first — its own note is then deduped by add_hint_note.
+    for (const kind of SOURCE_ITEM_KINDS) {
+      const direction = recipe.compositionHints.mix[kind];
+      if (direction === undefined) continue;
+      this.dispatchTo(sid, { type: 'adjust_mix', kind, direction }, { silent: true });
+    }
+    for (const note of recipe.compositionHints.notes) {
+      this.dispatchTo(sid, { type: 'add_hint_note', note }, { silent: true });
+    }
     await this.generate(recipe.intentTemplate, recipe, sid);
   }
 

@@ -73,7 +73,7 @@ Other rules:
 - 12-column grid: each block has span (respect catalog min/max). Blocks flow in order; consecutive spans summing to 12 sit side by side.
 - Respect content balance and composition hints ('less' shrinks or drops that kind; 'more' grows it).
 - Do NOT create blocks for the preserved blocks listed in context — they are re-inserted automatically. Avoid reusing their item ids.
-- If a recipeShape is given, follow its component order and spans as the page's skeleton (it is the user's saved shape) while filling it with the fresh items.
+- If a recipeShape is given, its layoutTemplate IS the page (it is the user's saved shape): emit those components in that order with those spans, filled with fresh items, and emit NOTHING the template does not list — a section missing from it was deleted on purpose. Carry each slot's title and props (density, maxItems) onto the block that fills it. Only source_list is still appended last.
 - Always end with ONE source_list block containing every used item id (provenance is mandatory).
 - Write everything user-visible in Korean (pageTitle, block titles, synthesis points, topic/angle, rationale). Prefer quality over quantity.
 - If items are sparse, compose a smaller good page; if empty, one 'text' block explaining that in Korean.`;

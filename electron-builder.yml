@@ -11,6 +11,9 @@ electronDist: node_modules/electron/dist
 win:
   target:
     - nsis
+# latest.yml names the asset without spaces; keep the file on disk matching it
+# or a hand-uploaded GitHub release turns spaces into dots and every client 404s.
+artifactName: ${productName}-Setup-${version}.${ext}
 nsis:
   oneClick: true
   perMachine: false
