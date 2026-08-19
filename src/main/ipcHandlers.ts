@@ -1,0 +1,288 @@
+import { app, ipcMain, shell, type BrowserWindow } from 'electron';
+import { join } from 'path';
+import { z } from 'zod';
+import {
+  IPC,
+  type GenerateProgress,
+  type GenerateRequest,
+  type GenerateResponse,
+  type InterpretEditRequest,
+  type InterpretEditResponse,
+  type RegenerateBlockRequest,
+  type RegenerateBlockResponse,
+  type SettingsPatch,
+  type SettingsView,
+  type UpdaterStatus
+} from '@shared/ipc';
+import { newId, nowIso } from '@shared/domain/ids';
+import { RecipeSchema } from '@shared/domain/recipe';
+import { PreferenceSignalSchema } from '@shared/domain/preference';
+import { GeneratedSnapshotSchema } from '@shared/domain/session';
+import { getCatalogEntry } from '@shared/catalog/catalog';
+import type { InterpretedIntent } from '@shared/domain/intent';
+import type { PlanRequest } from '@shared/planner/plannerTypes';
+import { interpretIntentRules } from '@shared/planner/heuristicIntent';
+import { heuristicPlan } from '@shared/planner/heuristicPlanner';
+import { createHttpClient } from './sources/http';
+import { gatherSources } from './sources/orchestrator';
+import { hackerNewsAdapter } from './sources/adapters/hackernews';
+import { lobstersAdapter } from './sources/adapters/lobsters';
+import { rssNewsAdapter } from './sources/adapters/rssNews';
+import { youtubeAdapter } from './sources/adapters/youtube';
+import { redditAdapter } from './sources/adapters/reddit';
+import type { AdapterContext, SourceAdapter } from './sources/types';
+import { createRecipeStore } from './store/recipeStore';
+import { createPreferenceStore } from './store/preferenceStore';
+import { createSessionArchive } from './store/sessionArchive';
+import { createSettingsStore } from './store/settingsStore';
+import { createAnthropicClient } from './llm/anthropicClient';
+import { interpretIntentLlm } from './llm/llmIntent';
+import { planLayoutLlm } from './llm/llmPlanner';
+import { interpretEditLlm } from './llm/llmEditor';
+import { openOriginalWindow, isSafeHttpUrl } from './originalViewer';
+import { createUpdater, type UpdaterHandle } from './updater';
+
+const ADAPTERS: SourceAdapter[] = [
+  youtubeAdapter,
+  rssNewsAdapter,
+  hackerNewsAdapter,
+  lobstersAdapter,
+  redditAdapter
+];
+
+export interface MainServices {
+  updater: UpdaterHandle;
+}
+
+export function registerIpcHandlers(getWindow: () => BrowserWindow | null): MainServices {
+  const dataDir = join(app.getPath('userData'), 'gptbrowser');
+  const recipes = createRecipeStore(dataDir);
+  const prefs = createPreferenceStore(dataDir);
+  const archive = createSessionArchive(dataDir);
+  const settings = createSettingsStore(dataDir);
+  const ctx: AdapterContext = { http: createHttpClient(), now: () => new Date() };
+
+  const send = (channel: string, payload: unknown): void => {
+    const win = getWindow();
+    if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+  };
+  const progress = (p: GenerateProgress): void => send(IPC.evGenerateProgress, p);
+
+  const llm = async (): Promise<{ client: ReturnType<typeof createAnthropicClient>; model: string }> => {
+    const s = await settings.get();
+    return { client: createAnthropicClient(s.anthropicApiKey), model: s.plannerModel };
+  };
+
+  const settingsView = async (): Promise<SettingsView> => {
+    const s = await settings.get();
+    return {
+      hasApiKey: Boolean(s.anthropicApiKey ?? process.env.ANTHROPIC_API_KEY),
+      plannerModel: s.plannerModel,
+      autoUpdate: s.autoUpdate,
+      locale: s.locale,
+      appVersion: app.getVersion()
+    };
+  };
+
+  ipcMain.handle(IPC.generate, async (_e, raw: GenerateRequest): Promise<GenerateResponse> => {
+    const fail = (error: string): GenerateResponse => ({
+      ok: false,
+      intent: null,
+      interpretation: null,
+      items: [],
+      provenance: [],
+      plan: null,
+      reports: [],
+      issues: [],
+      error
+    });
+    try {
+      const req = raw;
+      const { client, model } = await llm();
+      const prefSummary = await prefs.summarizeForPlanner();
+
+      progress({ sessionId: req.sessionId, phase: 'interpreting' });
+      let interpretation: InterpretedIntent | null = null;
+      if (req.rawInput !== null && req.rawInput.trim() !== '') {
+        if (client) {
+          interpretation = await interpretIntentLlm(
+            client,
+            model,
+            req.rawInput,
+            req.priorInterpretation,
+            prefSummary || undefined
+          );
+        }
+        interpretation ??= interpretIntentRules(req.rawInput, req.priorInterpretation);
+      } else {
+        interpretation = req.priorInterpretation;
+      }
+      if (!interpretation) return fail('해석할 의도가 없어요. 의도를 입력해 주세요.');
+
+      const intent = {
+        id: newId('int'),
+        rawInput: req.rawInput ?? '[재생성]',
+        interpreted: interpretation,
+        createdAt: nowIso(),
+        derivedFrom: req.recipeContext
+          ? { type: 'recipe' as const, id: req.recipeContext.recipeId }
+          : req.rawInput === null
+            ? { type: 'session' as const, id: req.sessionId }
+            : undefined
+      };
+
+      progress({ sessionId: req.sessionId, phase: 'gathering' });
+      const gathered = await gatherSources(interpretation, ADAPTERS, ctx);
+
+      progress({ sessionId: req.sessionId, phase: 'planning' });
+      const planReq: PlanRequest = {
+        interpretation,
+        items: gathered.items,
+        sessionId: req.sessionId,
+        preserved: { dockedBlocks: req.preserved.dockedBlocks },
+        hints: req.hints,
+        prefSummary: prefSummary || undefined
+      };
+      let planResult = client ? await planLayoutLlm(client, model, planReq) : null;
+      const issues: string[] = [];
+      if (!planResult) {
+        if (client) issues.push('LLM 플래너를 사용할 수 없어 휴리스틱 플래너로 구성했어요.');
+        planResult = heuristicPlan(planReq);
+      }
+      issues.push(...planResult.issues);
+
+      progress({ sessionId: req.sessionId, phase: 'done' });
+      return {
+        ok: true,
+        intent,
+        interpretation,
+        items: gathered.items,
+        provenance: gathered.provenance,
+        plan: planResult.plan,
+        reports: gathered.reports,
+        issues
+      };
+    } catch (err) {
+      progress({ sessionId: raw.sessionId, phase: 'error', detail: String(err) });
+      return fail(err instanceof Error ? err.message : '알 수 없는 오류가 발생했어요.');
+    }
+  });
+
+  ipcMain.handle(
+    IPC.regenerateBlock,
+    async (_e, req: RegenerateBlockRequest): Promise<RegenerateBlockResponse> => {
+      try {
+        const entry = getCatalogEntry(req.block.componentType);
+        if (!entry) return { ok: false, block: null, items: [], provenance: [], error: '알 수 없는 컴포넌트예요.' };
+        const kinds = entry.acceptsKinds;
+        if (kinds !== null && kinds.length === 0) {
+          return { ok: false, block: null, items: [], provenance: [], error: '이 블록은 콘텐츠 블록이 아니라 재생성할 수 없어요.' };
+        }
+        const classesFor = new Set<string>();
+        for (const k of kinds ?? ['video', 'article', 'post', 'headline']) {
+          if (k === 'video') classesFor.add('video');
+          if (k === 'article' || k === 'headline') classesFor.add('news');
+          if (k === 'post') classesFor.add('community');
+        }
+        const adapters = ADAPTERS.filter((a) => a.classes.some((c) => classesFor.has(c)));
+        const gathered = await gatherSources(req.interpretation, adapters, ctx, {
+          totalLimit: 30
+        });
+        const exclude = new Set(req.excludeItemIds);
+        const fresh = gathered.items.filter(
+          (i) => !exclude.has(i.id) && (kinds === null || kinds.includes(i.kind))
+        );
+        const want = Math.max(entry.minItems, Math.min(entry.maxItems, req.block.sourceItemRefs.length || entry.maxItems));
+        const picked = fresh.slice(0, want);
+        if (picked.length < entry.minItems) {
+          return { ok: false, block: null, items: [], provenance: [], error: '새 콘텐츠를 충분히 찾지 못했어요.' };
+        }
+        return {
+          ok: true,
+          block: { ...req.block, sourceItemRefs: picked.map((i) => i.id), state: {} },
+          items: picked,
+          provenance: gathered.provenance.filter((p) =>
+            picked.some((i) => i.provenanceRef === p.id)
+          ),
+          error: undefined
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          block: null,
+          items: [],
+          provenance: [],
+          error: err instanceof Error ? err.message : '블록 재생성에 실패했어요.'
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC.interpretEdit,
+    async (_e, req: InterpretEditRequest): Promise<InterpretEditResponse> => {
+      const { client, model } = await llm();
+      if (!client) {
+        return {
+          ok: false,
+          commands: [],
+          explanation:
+            'API 키가 설정되지 않아 고급 자연어 편집을 사용할 수 없어요. 설정에서 Anthropic API 키를 추가해 주세요.',
+          source: 'none'
+        };
+      }
+      const result = await interpretEditLlm(client, model, req.utterance, req.digest);
+      if (!result) {
+        return { ok: false, commands: [], explanation: '요청을 해석하지 못했어요.', source: 'llm' };
+      }
+      return { ok: true, commands: result.commands, explanation: result.explanation, source: 'llm' };
+    }
+  );
+
+  ipcMain.handle(IPC.recipesList, () => recipes.list());
+  ipcMain.handle(IPC.recipesSave, (_e, raw: unknown) => recipes.save(RecipeSchema.parse(raw)));
+  ipcMain.handle(IPC.recipesRemove, (_e, id: unknown) => recipes.remove(z.string().parse(id)));
+
+  ipcMain.handle(IPC.prefsList, () => prefs.list());
+  ipcMain.handle(IPC.prefsRecord, async (_e, raw: unknown) => {
+    await prefs.record(z.array(PreferenceSignalSchema).parse(raw));
+  });
+  ipcMain.handle(IPC.prefsClear, (_e, id?: unknown) =>
+    prefs.clear(id === undefined ? undefined : z.string().parse(id))
+  );
+
+  ipcMain.handle(IPC.sessionsSaveSnapshot, async (_e, raw: unknown) => {
+    await archive.saveSnapshot(GeneratedSnapshotSchema.parse(raw));
+  });
+  ipcMain.handle(IPC.sessionsList, () => archive.list());
+  ipcMain.handle(IPC.sessionsLoad, (_e, id: unknown) => archive.load(z.string().parse(id)));
+
+  ipcMain.handle(IPC.settingsGet, () => settingsView());
+  ipcMain.handle(IPC.settingsSet, async (_e, patch: SettingsPatch) => {
+    await settings.set({
+      ...(patch.plannerModel !== undefined ? { plannerModel: patch.plannerModel } : {}),
+      ...(patch.autoUpdate !== undefined ? { autoUpdate: patch.autoUpdate } : {}),
+      ...(patch.locale !== undefined ? { locale: patch.locale } : {}),
+      ...(patch.anthropicApiKey !== undefined ? { anthropicApiKey: patch.anthropicApiKey } : {})
+    });
+    return settingsView();
+  });
+
+  const updater = createUpdater({
+    send: (s: UpdaterStatus) => send(IPC.evUpdaterStatus, s),
+    autoUpdateEnabled: async () => (await settings.get()).autoUpdate
+  });
+  ipcMain.handle(IPC.updaterCheck, () => updater.check());
+  ipcMain.handle(IPC.updaterInstall, () => updater.install());
+
+  ipcMain.handle(IPC.openOriginal, (_e, url: unknown) => {
+    const u = z.string().parse(url);
+    openOriginalWindow(u, getWindow() ?? undefined);
+  });
+  ipcMain.handle(IPC.openExternal, async (_e, url: unknown) => {
+    const u = z.string().parse(url);
+    if (isSafeHttpUrl(u)) await shell.openExternal(u);
+  });
+
+  return { updater };
+}
