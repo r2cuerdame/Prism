@@ -71,16 +71,17 @@ export default function BlockChrome(props: BlockChromeProps): ReactElement {
     window.addEventListener('pointerup', up);
   };
 
-  const title =
-    typeof block.props.title === 'string' && block.props.title.trim() !== ''
-      ? block.props.title
-      : (entry?.title ?? block.componentType);
+  const ownTitle = typeof block.props.title === 'string' ? block.props.title : '';
+  const defaultTitle = entry?.title ?? block.componentType;
+  const title = ownTitle.trim() !== '' ? ownTitle : defaultTitle;
 
   const isPrimitive = entry !== undefined && entry.minItems === 0 && entry.maxItems === 0;
 
+  // Seed from the block's OWN title, never the catalog default: committing the
+  // shown default would freeze it into the plan as a pointless undo step.
   const startTitleEdit = (): void => {
     cancelTitle.current = false;
-    setTitleDraft(title);
+    setTitleDraft(ownTitle);
     setEditingTitle(true);
   };
 
@@ -92,8 +93,7 @@ export default function BlockChrome(props: BlockChromeProps): ReactElement {
       return;
     }
     const next = titleDraft.trim();
-    const current = typeof block.props.title === 'string' ? block.props.title : '';
-    if (next === current) return;
+    if (next === ownTitle) return;
     dispatch({ type: 'set_block_props', blockId: block.id, props: { title: next } });
   };
 
@@ -137,6 +137,7 @@ export default function BlockChrome(props: BlockChromeProps): ReactElement {
             aria-label="섹션 제목"
             autoFocus
             value={titleDraft}
+            placeholder={defaultTitle}
             onChange={(e) => setTitleDraft(e.target.value)}
             onBlur={commitTitle}
             onKeyDown={(e) => {
@@ -152,7 +153,7 @@ export default function BlockChrome(props: BlockChromeProps): ReactElement {
           />
         ) : (
           <button
-            className="gv-block-title"
+            className="gv-chrome-title"
             title="클릭해서 섹션 제목을 고쳐요"
             aria-label={`섹션 제목 "${title}" 수정`}
             onClick={startTitleEdit}

@@ -3,7 +3,16 @@ import type { SessionState } from '@shared/domain/session';
 import { createSessionState } from '@shared/domain/session';
 import type { ComponentBlock, LayoutPlan } from '@shared/domain/layoutPlan';
 import type { Intent } from '@shared/domain/intent';
-import { canRedo, canUndo, createHistory, pushHistory, redoHistory, undoHistory } from './history';
+import type { SessionCommandType } from '@shared/domain/commands';
+import {
+  canRedo,
+  canUndo,
+  createHistory,
+  isTransientCommand,
+  pushHistory,
+  redoHistory,
+  undoHistory
+} from './history';
 
 const T0 = '2026-08-19T00:00:00.000Z';
 const T1 = '2026-08-19T01:00:00.000Z';
@@ -99,6 +108,28 @@ describe('pushHistory', () => {
     expect(h2.present.status).toBe('loading');
   });
 
+  it('hint notes are session memory, not undo steps', () => {
+    const h0 = createHistory(stateWithPlan());
+    const h1 = pushHistory(h0, { type: 'add_hint_note', note: '더 짧게' }, T1);
+    expect(h1.past).toHaveLength(0);
+    expect(h1.present.compositionHints.notes).toEqual(['더 짧게']);
+    const h2 = pushHistory(h1, { type: 'remove_hint_note', note: '더 짧게' }, T1);
+    expect(h2.past).toHaveLength(0);
+    expect(h2.present.compositionHints.notes).toEqual([]);
+    expect(canUndo(h2)).toBe(false);
+  });
+
+  it('one tuning submit costs exactly one undo step', () => {
+    let h = createHistory(stateWithPlan());
+    h = pushHistory(h, { type: 'add_hint_note', note: '[기사 목록] 더 짧게' }, T1);
+    h = pushHistory(h, { type: 'resize_block', blockId: 'b1', span: 4 }, T1);
+    expect(h.past).toHaveLength(1);
+    const undone = undoHistory(h);
+    expect(undone.present.plan?.blocks[0].layout.span).toBe(6);
+    // The standing note survives the undo — the chip is its own affordance.
+    expect(undone.present.compositionHints.notes).toEqual(['[기사 목록] 더 짧게']);
+  });
+
   it('caps past at 100 dropping oldest', () => {
     let h = createHistory(stateWithPlan());
     for (let i = 0; i < 110; i++) {
@@ -123,6 +154,44 @@ describe('pushHistory', () => {
     const r2 = redoHistory(r1);
     expect(r2.present.title).toBe('b');
     expect(redoHistory(r2)).toBe(r2); // empty future unchanged
+  });
+});
+
+describe('isTransientCommand', () => {
+  it('is true exactly for view/memory commands, false for page edits', () => {
+    for (const t of [
+      'set_block_state',
+      'set_status',
+      'play_item',
+      'add_hint_note',
+      'remove_hint_note'
+    ] as const satisfies readonly SessionCommandType[]) {
+      expect(isTransientCommand(t)).toBe(true);
+    }
+    for (const t of [
+      'move_block',
+      'resize_block',
+      'remove_block',
+      'dock_block',
+      'lock_block',
+      'set_block_props',
+      'split_region',
+      'insert_block',
+      'replace_block',
+      'apply_plan',
+      'add_intent',
+      'rename_session',
+      'adjust_mix'
+    ] as const satisfies readonly SessionCommandType[]) {
+      expect(isTransientCommand(t)).toBe(false);
+    }
+  });
+
+  it('agrees with pushHistory: transient never grows past', () => {
+    const h0 = createHistory(stateWithPlan());
+    const h1 = pushHistory(h0, { type: 'play_item', itemId: 'nothing' }, T1);
+    expect(isTransientCommand('play_item')).toBe(true);
+    expect(h1.past).toHaveLength(0);
   });
 });
 

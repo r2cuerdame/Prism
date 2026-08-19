@@ -17,7 +17,6 @@ export default function ArticleListBlock({
   onInspect
 }: BlockRenderProps): ReactElement {
   const p = block.props;
-  const title = typeof p.title === 'string' ? p.title : undefined;
   const density = p.density === 'compact' ? 'compact' : 'comfortable';
   const maxItems =
     typeof p.maxItems === 'number' && Number.isFinite(p.maxItems)
@@ -32,7 +31,6 @@ export default function ArticleListBlock({
 
   return (
     <section className={`gv-article-list gv-article-list--${density}`}>
-      {title ? <h3 className="gv-block-title">{title}</h3> : null}
       {visible.map((item) => {
         const payload = getArticlePayload(item);
         const date = formatDate(item.publishedAt);

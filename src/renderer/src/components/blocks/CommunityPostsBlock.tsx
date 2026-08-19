@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import type { BlockRenderProps } from './blockContract';
 import { getPostPayload } from '@shared/domain/sourceItem';
+import { visibleItemCount } from '@shared/catalog/catalog';
 import './contentBlocks.css';
 
 export default function CommunityPostsBlock({
@@ -10,17 +11,16 @@ export default function CommunityPostsBlock({
   onInspect
 }: BlockRenderProps): ReactElement {
   const p = block.props;
-  const title = typeof p.title === 'string' ? p.title : undefined;
   const showMeta = typeof p.showMeta === 'boolean' ? p.showMeta : true;
+  const visible = items.slice(0, visibleItemCount(block.componentType, p.maxItems, items.length));
 
-  if (items.length === 0) {
+  if (visible.length === 0) {
     return <div className="gv-block-empty">표시할 커뮤니티 글이 없습니다.</div>;
   }
 
   return (
     <section className="gv-post-list">
-      {title ? <h3 className="gv-block-title">{title}</h3> : null}
-      {items.map((item) => {
+      {visible.map((item) => {
         const payload = getPostPayload(item);
         return (
           <div key={item.id} className="gv-post-row">

@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import type { BlockRenderProps } from './blockContract';
 import type { SourceItem } from '@shared/domain/sourceItem';
 import { getPostPayload } from '@shared/domain/sourceItem';
+import { visibleItemCount } from '@shared/catalog/catalog';
 import './synthesisBlocks.css';
 
 const KIND_LABELS: Record<SourceItem['kind'], string> = {
@@ -16,29 +17,40 @@ export default function TopicClusterBlock(props: BlockRenderProps): ReactElement
   const { block, items, dispatch, onOpenOriginal, onInspect } = props;
 
   // Planner props are LLM output — narrow at runtime; catalog `topic_cluster`
-  // requires a topic and minItems 2, fallback 'hide'.
+  // requires a heading and minItems 2, fallback 'hide'.
+  const rawTitle = block.props.title;
   const rawTopic = block.props.topic;
+  const title = typeof rawTitle === 'string' ? rawTitle.trim() : '';
   const topic = typeof rawTopic === 'string' ? rawTopic.trim() : '';
-  if (topic.length === 0 || items.length < 2) return null;
+  // The chrome header already prints props.title, so the card shows the topic
+  // and only falls back to the title when the planner gave no topic.
+  const heading = topic.length > 0 ? topic : title;
+  if (heading.length === 0 || items.length < 2) return null;
+  const showHeading = topic.length > 0 || title.length === 0;
 
   const rawAngle = block.props.angle;
   const angle =
     typeof rawAngle === 'string' && rawAngle.trim().length > 0 ? rawAngle.trim() : null;
 
+  const visible = items.slice(
+    0,
+    visibleItemCount(block.componentType, block.props.maxItems, items.length)
+  );
+
   // Distinct participating sources, in item order — makes the cross-source
   // nature of the cluster obvious at a glance.
-  const sourceNames = [...new Set(items.map((item) => item.sourceName))];
+  const sourceNames = [...new Set(visible.map((item) => item.sourceName))];
 
   // Rows grouped visually by source, preserving first-seen order.
   const groups = new Map<string, SourceItem[]>();
-  for (const item of items) {
+  for (const item of visible) {
     const group = groups.get(item.sourceName);
     if (group) group.push(item);
     else groups.set(item.sourceName, [item]);
   }
 
   // Only the first video/article row shows its thumbnail (keeps the card dense).
-  const thumbItemId = items.find(
+  const thumbItemId = visible.find(
     (item) =>
       (item.kind === 'video' || item.kind === 'article') &&
       typeof item.media?.thumbnailUrl === 'string' &&
@@ -48,7 +60,7 @@ export default function TopicClusterBlock(props: BlockRenderProps): ReactElement
   return (
     <section className="gv-topic-cluster">
       <header className="gv-tc-head">
-        <h3 className="gv-tc-topic">{topic}</h3>
+        {showHeading ? <h3 className="gv-tc-topic">{heading}</h3> : null}
         {angle ? <p className="gv-tc-angle">{angle}</p> : null}
         <div className="gv-tc-sources">{sourceNames.join(' · ')}</div>
       </header>

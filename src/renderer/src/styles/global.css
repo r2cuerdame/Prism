@@ -602,7 +602,9 @@ select:focus {
   cursor: grabbing;
 }
 
-.gv-block-title {
+/* Chrome header title. Distinct from the blocks' in-body .gv-block-title
+   headings — sharing the name made the header depend on stylesheet order. */
+.gv-chrome-title {
   font-size: 12.5px;
   font-weight: 650;
   color: var(--gv-text-dim);
@@ -615,7 +617,7 @@ select:focus {
   padding: 2px 5px;
   margin-left: -5px;
 }
-button.gv-block-title:hover {
+button.gv-chrome-title:hover {
   color: var(--gv-text);
   background: var(--gv-bg-hover);
 }

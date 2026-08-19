@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { SessionState } from '@shared/domain/session';
 import { createSessionState } from '@shared/domain/session';
 import type { ComponentBlock, LayoutPlan } from '@shared/domain/layoutPlan';
+import { ComponentBlockSchema } from '@shared/domain/layoutPlan';
 import type { SourceItem } from '@shared/domain/sourceItem';
 import type { Intent } from '@shared/domain/intent';
 import type { Provenance } from '@shared/domain/provenance';
+import { getCatalogEntry } from '@shared/catalog/catalog';
 import { applySessionCommand } from './reducer';
 
 const T0 = '2026-08-19T00:00:00.000Z';
@@ -494,10 +496,62 @@ describe('play_item', () => {
     expect(next.plan?.blocks[0].state).toEqual({ activeItemId: 'v2', muted: true });
   });
 
-  it('is a no-op returning the same state when nothing can play', () => {
-    const noPlayer = videoState([makeBlock('q1', { componentType: 'video_queue' })]);
-    expect(applySessionCommand(noPlayer, { type: 'play_item', itemId: 'v1' }, T1)).toBe(noPlayer);
+  it('re-playing the item already playing returns the same state reference', () => {
+    const s = videoState([player('p1', { sourceItemRefs: ['v1', 'v2'], state: { activeItemId: 'v2' } })]);
+    expect(applySessionCommand(s, { type: 'play_item', itemId: 'v2' }, T1)).toBe(s);
+    // Active but not yet a ref still has work to do.
+    const missingRef = videoState([player('p1', { sourceItemRefs: ['v1'], state: { activeItemId: 'v2' } })]);
+    const next = applySessionCommand(missingRef, { type: 'play_item', itemId: 'v2' }, T1);
+    expect(next).not.toBe(missingRef);
+    expect(next.plan?.blocks[0].sourceItemRefs).toEqual(['v1', 'v2']);
+  });
 
+  it('creates a player at the top when the page has none', () => {
+    const s = videoState([makeBlock('q1', { componentType: 'video_queue' }), makeBlock('l1')]);
+    const next = applySessionCommand(s, { type: 'play_item', itemId: 'v2' }, T1);
+    expect(next).not.toBe(s);
+    const types = next.plan?.blocks.map((b) => b.componentType);
+    expect(types).toEqual(['video_player', 'video_queue', 'article_list']);
+    const created = next.plan?.blocks[0];
+    expect(created?.sourceItemRefs).toEqual(['v2']);
+    expect(created?.state?.activeItemId).toBe('v2');
+    expect(next.updatedAt).toBe(T1);
+  });
+
+  it('places the created player after a leading synthesis_brief', () => {
+    const s = videoState([
+      makeBlock('sb1', { componentType: 'synthesis_brief' }),
+      makeBlock('q1', { componentType: 'video_queue' })
+    ]);
+    const next = applySessionCommand(s, { type: 'play_item', itemId: 'v1' }, T1);
+    expect(next.plan?.blocks.map((b) => b.componentType)).toEqual([
+      'synthesis_brief',
+      'video_player',
+      'video_queue'
+    ]);
+  });
+
+  it('the created player satisfies its catalog entry', () => {
+    const s = videoState([makeBlock('q1', { componentType: 'video_queue' })]);
+    const next = applySessionCommand(s, { type: 'play_item', itemId: 'v1' }, T1);
+    const created = next.plan?.blocks[0];
+    const entry = getCatalogEntry('video_player');
+    expect(entry).toBeDefined();
+    if (!created || !entry) throw new Error('no player created');
+    expect(created.id).not.toBe('');
+    expect(created.componentVersion).toBe(entry.version);
+    expect(entry.propsSchema.parse(created.props)).toBeDefined();
+    expect(created.layout.span).toBe(entry.defaultSpan);
+    expect(created.layout.span).toBeGreaterThanOrEqual(entry.minSpan);
+    expect(created.layout.span).toBeLessThanOrEqual(entry.maxSpan);
+    expect(created.sourceItemRefs.length).toBeGreaterThanOrEqual(entry.minItems);
+    expect(created.sourceItemRefs.length).toBeLessThanOrEqual(entry.maxItems);
+    expect(entry.acceptsKinds).toContain(s.items.v1.kind);
+    expect(created.rationale).toBeTruthy();
+    expect(ComponentBlockSchema.parse(created)).toBeDefined();
+  });
+
+  it('is a no-op returning the same state when nothing can play', () => {
     const withPlayer = videoState([player('p1')]);
     expect(applySessionCommand(withPlayer, { type: 'play_item', itemId: 'ghost' }, T1)).toBe(
       withPlayer

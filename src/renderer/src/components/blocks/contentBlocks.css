@@ -10,12 +10,8 @@
   background: var(--gv-surface-muted, transparent);
 }
 
-.gv-block-title {
-  margin: 0 0 10px;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--gv-text, #1c1f24);
-}
+/* .gv-block-title belongs to the block chrome header (global.css) — blocks
+   never repeat the section title in their body. */
 
 .gv-src-chip {
   display: inline-flex;

@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import type { BlockRenderProps } from './blockContract';
+import { visibleItemCount } from '@shared/catalog/catalog';
 import './videoBlocks.css';
 
 export default function HeadlineStripBlock({
@@ -11,13 +12,15 @@ export default function HeadlineStripBlock({
   const headlines = items.filter((i) => i.kind === 'headline' || i.kind === 'article');
   if (headlines.length < 3) return null;
 
-  const title = typeof block.props.title === 'string' ? block.props.title : null;
+  const visible = headlines.slice(
+    0,
+    visibleItemCount(block.componentType, block.props.maxItems, headlines.length)
+  );
 
   return (
     <div className="gv-headline-strip">
-      {title ? <div className="gv-block-caption">{title}</div> : null}
       <div className="gv-headline-scroll">
-        {headlines.map((item) => (
+        {visible.map((item) => (
           <div key={item.id} className="gv-headline-card">
             <div className="gv-item-chips">
               <button

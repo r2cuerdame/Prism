@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import type { BlockRenderProps } from './blockContract';
 import type { SourceItem } from '@shared/domain/sourceItem';
+import { visibleItemCount } from '@shared/catalog/catalog';
 import './contentBlocks.css';
 
 function hostOf(url: string): string | null {
@@ -25,10 +26,13 @@ export default function SourceListBlock({
 }: BlockRenderProps): ReactElement | null {
   if (items.length === 0) return null;
 
-  const caption = typeof block.props.title === 'string' ? block.props.title : '출처';
+  const visible = items.slice(
+    0,
+    visibleItemCount(block.componentType, block.props.maxItems, items.length)
+  );
 
   const groups = new Map<string, SourceItem[]>();
-  for (const item of items) {
+  for (const item of visible) {
     const list = groups.get(item.sourceName);
     if (list) list.push(item);
     else groups.set(item.sourceName, [item]);
@@ -36,7 +40,6 @@ export default function SourceListBlock({
 
   return (
     <section className="gv-source-list">
-      <h3 className="gv-block-title">{caption}</h3>
       {[...groups.entries()].map(([sourceName, groupItems]) => (
         <div key={sourceName} className="gv-source-group">
           <div className="gv-source-group-header">

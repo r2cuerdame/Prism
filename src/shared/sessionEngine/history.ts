@@ -8,13 +8,23 @@ const MAX_SNAPSHOTS = 30;
 /**
  * Commands that mutate view state but should not create undo steps. Choosing
  * what to watch is viewing, not composing — clicking through a queue must not
- * bury the user's real edits under a pile of undo steps.
+ * bury the user's real edits under a pile of undo steps. Hint notes are session
+ * memory with their own remove affordance (the TuningBar chips), so they are
+ * not steps in the page's edit history either: one tuning submit must cost
+ * exactly one undo step, the visible change.
  */
 const TRANSIENT_COMMANDS: ReadonlySet<SessionCommandType> = new Set<SessionCommandType>([
   'set_block_state',
   'set_status',
-  'play_item'
+  'play_item',
+  'add_hint_note',
+  'remove_hint_note'
 ]);
+
+/** True for commands that change view/memory state without an undo step. */
+export function isTransientCommand(type: SessionCommandType): boolean {
+  return TRANSIENT_COMMANDS.has(type);
+}
 
 export interface SessionHistory {
   past: SessionState[];

@@ -37,15 +37,13 @@ export default function SynthesisBriefBlock(props: BlockRenderProps): ReactEleme
   // Catalog minItems is 2 — a synthesis over fewer than 2 resolved items hides.
   if (points.length === 0 || items.length < 2) return null;
 
-  const rawTitle = block.props.title;
-  const caption =
-    typeof rawTitle === 'string' && rawTitle.trim().length > 0 ? rawTitle : '이 페이지 요약';
-
+  // Content lead-in, not the section name: the chrome header already renders
+  // props.title, so echoing it here would print the same string twice.
   const sourceCount = new Set(items.map((item) => item.sourceName)).size;
 
   return (
     <section className="gv-syn-brief">
-      <h3 className="gv-syn-caption">{caption}</h3>
+      <h3 className="gv-syn-caption">이 페이지 요약</h3>
       <ul className="gv-syn-points">
         {points.map((point, pointIndex) => {
           // `cites` are indices into block.sourceItemRefs → props.items.

@@ -6,6 +6,7 @@ import { SOURCE_ITEM_KINDS } from '@shared/domain/sourceItem';
 import type { Provenance } from '@shared/domain/provenance';
 import { splitRegion } from './splitRegion';
 import { getCatalogEntry } from '@shared/catalog/catalog';
+import { newId } from '@shared/domain/ids';
 
 const DEFAULT_TITLE = '새 세션';
 const MAX_NOTES = 10;
@@ -233,12 +234,39 @@ export function applySessionCommand(state: SessionState, cmd: SessionCommand, at
 }
 
 const PLAYER_TYPE = 'video_player';
+const BRIEF_TYPE = 'synthesis_brief';
+
+/**
+ * A page can legitimately carry videos without a player (the composer drops the
+ * anchor when the user asked for fewer videos), so playing has to be able to
+ * create one. Built from the catalog entry, never hand-tuned, or the block
+ * fails the renderer's own validation.
+ */
+function newPlayerBlock(itemId: string): ComponentBlock | null {
+  const entry = getCatalogEntry(PLAYER_TYPE);
+  if (!entry) return null;
+  return {
+    id: newId('blk'),
+    componentType: PLAYER_TYPE,
+    componentVersion: entry.version,
+    sourceItemRefs: [itemId],
+    props: { ...entry.defaultProps },
+    layout: { span: entry.defaultSpan },
+    locked: false,
+    docked: false,
+    rationale: '재생 요청에 따라 만든 플레이어',
+    state: { activeItemId: itemId }
+  };
+}
 
 /**
  * Send a video to a player block. Any block can hold videos (queue, topic
  * cluster, the player's own strip) but only `video_player` can play one, so
- * the item is adopted into the player's refs and made active. Invalid input
- * (no player, unknown item, non-video item) returns the SAME state reference.
+ * the item is adopted into the player's refs and made active. When the page has
+ * no player at all one is created at the top (below a leading synthesis brief,
+ * which stays the page's opening). Invalid input (no plan, unknown item,
+ * non-video item) returns the SAME state reference, as does re-playing what is
+ * already playing — otherwise a repeat click schedules a write for nothing.
  */
 function playItem(
   state: SessionState,
@@ -249,17 +277,26 @@ function playItem(
   if (!state.plan) return state;
   const blocks = state.plan.blocks;
 
+  const item = state.items[itemId];
+  if (!item || item.kind !== 'video') return state;
+
   let idx = -1;
   if (playerBlockId !== undefined) {
     idx = blocks.findIndex((b) => b.id === playerBlockId && b.componentType === PLAYER_TYPE);
   }
   if (idx < 0) idx = blocks.findIndex((b) => b.componentType === PLAYER_TYPE);
-  if (idx < 0) return state;
-
-  const item = state.items[itemId];
-  if (!item || item.kind !== 'video') return state;
+  if (idx < 0) {
+    const created = newPlayerBlock(itemId);
+    if (!created) return state;
+    const at = blocks.length > 0 && blocks[0].componentType === BRIEF_TYPE ? 1 : 0;
+    const next = blocks.slice();
+    next.splice(at, 0, created);
+    return withBlocks(state, next, ts);
+  }
 
   const block = blocks[idx];
+  if (block.state?.activeItemId === itemId && block.sourceItemRefs.includes(itemId)) return state;
+
   let refs = block.sourceItemRefs;
   if (!refs.includes(itemId)) {
     refs = [...refs, itemId];

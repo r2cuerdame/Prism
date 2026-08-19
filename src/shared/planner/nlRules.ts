@@ -26,8 +26,11 @@ const KIND_TABLE: KindEntry[] = [
   { regex: /출처|source/, types: ['source_list'], mixKind: null }
 ];
 
-const FEWER_RE = /줄여|적게|덜|fewer|less/;
-const MORE_RE = /더|늘려|많이|more/;
+// '더 짧게' contains the bare '더', so FEWER must be recognised first and must
+// know every shrink word the per-section parser knows — otherwise the composer
+// grows a list the user asked to shorten.
+const FEWER_RE = /줄여|줄이|짧게|적게|간단|덜|\bfewer\b|\bless\b|\bshorter\b/;
+const MORE_RE = /더|늘려|늘리|많이|\bmore\b|\blonger\b/;
 const REMOVE_RE = /빼|없애|지워|삭제|치워|숨겨|remove|delete|hide/;
 const TOP_ABS_RE = /맨\s*위|to the top/;
 const TOP_REL_RE = /위로|올려|move up/;

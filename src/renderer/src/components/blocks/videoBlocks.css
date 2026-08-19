@@ -9,12 +9,8 @@
   font-size: 13px;
 }
 
-.gv-block-caption {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--gv-text-dim);
-  margin-bottom: 8px;
-}
+/* The section title lives in the block chrome header (.gv-block-title,
+   global.css) — these blocks no longer caption themselves. */
 
 .gv-item-chips {
   display: flex;

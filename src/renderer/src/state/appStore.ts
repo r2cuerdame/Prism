@@ -14,6 +14,7 @@ import {
   redoHistory,
   canUndo,
   canRedo,
+  isTransientCommand,
   type SessionHistory
 } from '@shared/sessionEngine/history';
 import { inferPreferenceSignals } from '@shared/sessionEngine/preferenceInfer';
@@ -183,9 +184,11 @@ class AppStore {
       const snap = nextHistory.snapshots[nextHistory.snapshots.length - 1];
       if (snap) void window.gptb.sessionsSaveSnapshot(snap).catch(() => undefined);
       void this.refreshArchive();
-    } else {
+    } else if (!isTransientCommand(cmd.type)) {
       // Direct manipulation and language edits are part of the session too —
       // persist them so history survives a restart, not just regenerations.
+      // Transient commands (playing, status, notes) are not edits: writing a
+      // snapshot per video click would churn the archive on plain viewing.
       this.persistEditsSoon(sessionId);
     }
   }

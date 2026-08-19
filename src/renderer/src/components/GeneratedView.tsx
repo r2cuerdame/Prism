@@ -9,7 +9,7 @@ import {
   type DragMoveEvent,
   type DragStartEvent
 } from '@dnd-kit/core';
-import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
+import { SortableContext, type SortingStrategy } from '@dnd-kit/sortable';
 import type { SessionState } from '@shared/domain/session';
 import type { SessionCommand } from '@shared/domain/commands';
 import type { SplitSide } from '@shared/sessionEngine/splitRegion';
@@ -28,6 +28,12 @@ interface DropTarget {
   blockId: string;
   side: SplitSide;
 }
+
+/**
+ * Blocks hold still while dragging: a sorting shuffle would promise a reorder,
+ * but the drop splits a region. The edge indicator is the only preview.
+ */
+const noShuffle: SortingStrategy = () => null;
 
 /**
  * Which edge of a block the pointer is over. The top/bottom bands win over the
@@ -65,13 +71,15 @@ export default function GeneratedView(props: GeneratedViewProps): ReactElement |
       setDropTarget(null);
       return;
     }
+    // Aim with the pointer, not the dragged block's centre: on a wide block the
+    // two are far apart and the highlighted edge would not match the hand.
+    const activator = event.activatorEvent as { clientX?: number; clientY?: number } | null;
+    if (!activator || activator.clientX === undefined || activator.clientY === undefined) {
+      return;
+    }
+    const x = activator.clientX + event.delta.x;
+    const y = activator.clientY + event.delta.y;
     const rect = over.rect;
-    const translated = event.active.rect.current.translated;
-    if (!translated) return;
-    // dnd-kit reports rects, not the raw pointer, so use the dragged block's
-    // own centre as the probe — it is what the user visually aims with.
-    const x = translated.left + translated.width / 2;
-    const y = translated.top + translated.height / 2;
     const domRect = new DOMRect(rect.left, rect.top, rect.width, rect.height);
     setDropTarget({ blockId: String(over.id), side: sideFromPointer(domRect, x, y) });
   }, []);
@@ -110,7 +118,7 @@ export default function GeneratedView(props: GeneratedViewProps): ReactElement |
       onDragEnd={onDragEnd}
       onDragCancel={onDragCancel}
     >
-      <SortableContext items={plan.blocks.map((b) => b.id)} strategy={rectSortingStrategy}>
+      <SortableContext items={plan.blocks.map((b) => b.id)} strategy={noShuffle}>
         <div className={`gv-grid${dragging ? ' gv-grid--dragging' : ''}`} ref={gridRef}>
           {plan.blocks.map((block) => {
             const Component = BLOCK_REGISTRY[block.componentType];

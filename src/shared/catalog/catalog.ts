@@ -30,6 +30,13 @@ export interface CatalogEntry {
 
 const titleProp = z.string().max(80).optional();
 
+/**
+ * Per-section item cap. Declared here or `validateAndRepairPlan` strips it
+ * from props, so a tuning edit would silently vanish on the next validation.
+ */
+const maxItemsProp = (limit: number): z.ZodTypeAny =>
+  z.number().int().min(1).max(limit).optional();
+
 export const COMPONENT_CATALOG: CatalogEntry[] = [
   {
     type: 'video_player',
@@ -54,7 +61,7 @@ export const COMPONENT_CATALOG: CatalogEntry[] = [
     title: '비디오 큐',
     descriptionForPlanner:
       'Compact vertical list of watchable videos without a player. Pair next to a video_player or use alone for lighter pages.',
-    propsSchema: z.object({ title: titleProp }),
+    propsSchema: z.object({ title: titleProp, maxItems: maxItemsProp(12) }),
     defaultProps: {},
     acceptsKinds: ['video'],
     minItems: 1,
@@ -71,7 +78,7 @@ export const COMPONENT_CATALOG: CatalogEntry[] = [
     title: '헤드라인',
     descriptionForPlanner:
       'Horizontal strip of 3-10 short headlines for fast scanning. Good at the top of news-heavy pages.',
-    propsSchema: z.object({ title: titleProp }),
+    propsSchema: z.object({ title: titleProp, maxItems: maxItemsProp(10) }),
     defaultProps: {},
     acceptsKinds: ['headline', 'article'],
     minItems: 3,
@@ -126,7 +133,11 @@ export const COMPONENT_CATALOG: CatalogEntry[] = [
     title: '커뮤니티',
     descriptionForPlanner:
       'Discussion cluster: community posts with points/comment counts and links to the thread.',
-    propsSchema: z.object({ title: titleProp, showMeta: z.boolean().optional() }),
+    propsSchema: z.object({
+      title: titleProp,
+      showMeta: z.boolean().optional(),
+      maxItems: maxItemsProp(10)
+    }),
     defaultProps: { showMeta: true },
     acceptsKinds: ['post'],
     minItems: 1,
@@ -173,8 +184,10 @@ export const COMPONENT_CATALOG: CatalogEntry[] = [
     descriptionForPlanner:
       'One topic covered by SEVERAL DIFFERENT sources, gathered into a single card: props.topic names the thread, props.angle (optional) says what differs between them. sourceItemRefs MUST span at least two distinct sources (and may mix kinds: an article, a video and a community thread about the same thing). Use 1-3 of these for the main threads of the page. Never use it for items that all come from one source.',
     propsSchema: z.object({
+      title: titleProp,
       topic: z.string().max(120),
-      angle: z.string().max(300).optional()
+      angle: z.string().max(300).optional(),
+      maxItems: maxItemsProp(8)
     }),
     defaultProps: {},
     acceptsKinds: null,
@@ -192,7 +205,7 @@ export const COMPONENT_CATALOG: CatalogEntry[] = [
     title: '출처',
     descriptionForPlanner:
       'Evidence list: every source item with its origin link. Place ONCE at the bottom of the page for provenance.',
-    propsSchema: z.object({ title: titleProp }),
+    propsSchema: z.object({ title: titleProp, maxItems: maxItemsProp(30) }),
     defaultProps: { title: '출처' },
     acceptsKinds: null,
     minItems: 1,
@@ -264,6 +277,25 @@ export const CATALOG_BY_TYPE: ReadonlyMap<string, CatalogEntry> = new Map(
 
 export function getCatalogEntry(type: string): CatalogEntry | undefined {
   return CATALOG_BY_TYPE.get(type);
+}
+
+/**
+ * How many of `available` items a block may render for a props.maxItems that
+ * came from the planner or a tuning edit (unknown shape at runtime).
+ * Never returns fewer than the entry's minItems: slicing must not push a
+ * healthy block into its 'hide'/placeholder fallback.
+ */
+export function visibleItemCount(
+  type: string,
+  rawMaxItems: unknown,
+  available: number
+): number {
+  if (typeof rawMaxItems !== 'number' || !Number.isFinite(rawMaxItems)) return available;
+  const entry = getCatalogEntry(type);
+  const upper = entry?.maxItems ?? available;
+  const lower = entry?.minItems ?? 1;
+  const requested = Math.min(Math.max(1, Math.floor(rawMaxItems)), upper);
+  return Math.min(available, Math.max(requested, lower));
 }
 
 /** Compact JSON catalog document embedded into LLM planner prompts. */
