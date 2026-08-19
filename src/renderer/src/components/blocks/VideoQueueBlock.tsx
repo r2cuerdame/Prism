@@ -6,6 +6,7 @@ import './videoBlocks.css';
 export default function VideoQueueBlock({
   block,
   items,
+  dispatch,
   onOpenOriginal,
   onInspect
 }: BlockRenderProps): ReactElement | null {
@@ -13,6 +14,8 @@ export default function VideoQueueBlock({
   if (videos.length === 0) return null;
 
   const title = typeof block.props.title === 'string' ? block.props.title : null;
+  const activeItemId =
+    typeof block.state?.activeItemId === 'string' ? block.state.activeItemId : null;
 
   return (
     <div className="gv-video-queue">
@@ -20,12 +23,23 @@ export default function VideoQueueBlock({
       <ul className="gv-video-queue-list">
         {videos.map((item) => {
           const channel = getVideoPayload(item)?.channel;
+          const isActive = item.id === activeItemId;
           return (
-            <li key={item.id} className="gv-video-queue-row">
+            <li
+              key={item.id}
+              className={`gv-video-queue-row${isActive ? ' gv-video-queue-row--active' : ''}`}
+            >
               <button
                 type="button"
                 className="gv-video-queue-main"
-                onClick={() => onOpenOriginal(item.originalUrl)}
+                aria-pressed={isActive}
+                onClick={() =>
+                  dispatch({
+                    type: 'set_block_state',
+                    blockId: block.id,
+                    state: { activeItemId: item.id }
+                  })
+                }
               >
                 {item.media?.thumbnailUrl ? (
                   <img
@@ -53,7 +67,10 @@ export default function VideoQueueBlock({
                 <button
                   type="button"
                   className="gv-original-btn"
-                  onClick={() => onOpenOriginal(item.originalUrl)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenOriginal(item.originalUrl);
+                  }}
                 >
                   원본
                 </button>

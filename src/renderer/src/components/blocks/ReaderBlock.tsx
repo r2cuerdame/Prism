@@ -38,7 +38,10 @@ export default function ReaderBlock({
         <button
           type="button"
           className="gv-open-original"
-          onClick={() => onOpenOriginal(item.originalUrl)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenOriginal(item.originalUrl);
+          }}
         >
           원본
         </button>
@@ -52,7 +55,10 @@ export default function ReaderBlock({
         <button
           type="button"
           className="gv-reader-open"
-          onClick={() => onOpenOriginal(item.originalUrl)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenOriginal(item.originalUrl);
+          }}
         >
           원본에서 읽기
         </button>

@@ -24,13 +24,7 @@ export default function CommunityPostsBlock({
         const payload = getPostPayload(item);
         return (
           <div key={item.id} className="gv-post-row">
-            <button
-              type="button"
-              className="gv-post-title"
-              onClick={() => onOpenOriginal(item.originalUrl)}
-            >
-              {item.title}
-            </button>
+            <h4 className="gv-post-title">{item.title}</h4>
             <div className="gv-post-meta">
               <button
                 type="button"
@@ -51,16 +45,20 @@ export default function CommunityPostsBlock({
               <button
                 type="button"
                 className="gv-open-original"
-                onClick={() =>
-                  onOpenOriginal(payload?.commentsUrl ?? item.originalUrl)
-                }
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenOriginal(payload?.commentsUrl ?? item.originalUrl);
+                }}
               >
                 댓글
               </button>
               <button
                 type="button"
                 className="gv-open-original"
-                onClick={() => onOpenOriginal(item.originalUrl)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenOriginal(item.originalUrl);
+                }}
               >
                 원본
               </button>

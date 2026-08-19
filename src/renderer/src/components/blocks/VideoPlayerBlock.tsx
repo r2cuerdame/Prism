@@ -56,7 +56,10 @@ export default function VideoPlayerBlock({
           <button
             type="button"
             className="gv-original-btn"
-            onClick={() => onOpenOriginal(active.originalUrl)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenOriginal(active.originalUrl);
+            }}
           >
             원본
           </button>
@@ -100,7 +103,10 @@ export default function VideoPlayerBlock({
                 <button
                   type="button"
                   className="gv-original-btn"
-                  onClick={() => onOpenOriginal(item.originalUrl)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenOriginal(item.originalUrl);
+                  }}
                 >
                   원본
                 </button>

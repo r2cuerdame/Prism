@@ -51,13 +51,7 @@ export default function ArticleListBlock({
               />
             ) : null}
             <div className="gv-article-body">
-              <button
-                type="button"
-                className="gv-article-title"
-                onClick={() => onOpenOriginal(item.originalUrl)}
-              >
-                {item.title}
-              </button>
+              <h4 className="gv-article-title">{item.title}</h4>
               {density === 'comfortable' && (item.summary ?? payload?.excerpt) ? (
                 <p className="gv-article-summary">{item.summary ?? payload?.excerpt}</p>
               ) : null}
@@ -73,7 +67,10 @@ export default function ArticleListBlock({
                 <button
                   type="button"
                   className="gv-open-original"
-                  onClick={() => onOpenOriginal(item.originalUrl)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenOriginal(item.originalUrl);
+                  }}
                 >
                   원본
                 </button>

@@ -159,11 +159,10 @@ describe('heuristicPlan', () => {
     const { plan, issues } = heuristicPlan(reqOf(mixedItems()));
     expect(issues).toEqual([]);
     const t = types(plan);
+    // A watchable anchor plus a topic-composed body — not one block per kind.
     expect(t).toContain('video_player');
     expect(t).toContain('video_queue');
-    expect(t).toContain('headline_strip');
-    expect(t).toContain('article_list');
-    expect(t).toContain('community_posts');
+    expect(t).toContain('topic_cluster');
     expect(t).toContain('source_list');
     expect(plan.blocks[plan.blocks.length - 1]!.componentType).toBe('source_list');
     expect(t.filter((x) => x === 'source_list')).toHaveLength(1);
@@ -243,15 +242,18 @@ describe('heuristicPlan', () => {
     }
   });
 
-  it('orders sections by contentBalance weight (video-heavy first)', () => {
+  it('puts the watchable anchor before the topic-composed body', () => {
     const { plan } = heuristicPlan(
       reqOf(mixedItems(), {
         interpretation: interp({ contentBalance: { video: 0.9, article: 0.2, post: 0.1, headline: 0.1 } })
       })
     );
     const t = types(plan);
-    expect(t.indexOf('video_player')).toBeLessThan(t.indexOf('article_list'));
-    expect(t.indexOf('article_list')).toBeLessThan(t.indexOf('community_posts'));
+    const player = t.indexOf('video_player');
+    expect(player).toBeGreaterThanOrEqual(0);
+    const body = t.findIndex((x, i) => i > player && x !== 'video_queue' && x !== 'source_list');
+    // Anything that follows the anchor is body composition, never a kind silo.
+    if (body >= 0) expect(t[body]).toBe('topic_cluster');
   });
 });
 
@@ -275,10 +277,11 @@ describe('heuristicPlan cross-source synthesis', () => {
 
     const clusters = plan.blocks.filter((b) => b.componentType === 'topic_cluster');
     expect(clusters.length).toBeGreaterThanOrEqual(1);
+    // At least one thread must genuinely span sources — that is the point.
+    expect(clusters.some((c) => sourcesOfRefs(plan, items, c).size >= 2)).toBe(true);
     for (const c of clusters) {
-      expect(sourcesOfRefs(plan, items, c).size).toBeGreaterThanOrEqual(2);
       expect(String(c.props.topic).length).toBeGreaterThan(0);
-      expect(String(c.props.angle)).toContain('함께 다뤄요');
+      expect(String(c.props.angle).length).toBeGreaterThan(0);
       expect(c.rationale).toBeTruthy();
     }
 
@@ -296,19 +299,20 @@ describe('heuristicPlan cross-source synthesis', () => {
     }
   });
 
-  it('does not repeat cluster/synthesis items in the kind-driven sections', () => {
+  it('shows each item once in the body: the anchor and the clusters never overlap', () => {
     const items = multiSourceItems();
     const { plan } = heuristicPlan(reqOf(items));
-    const crossRefs = new Set(
+    const anchorRefs = new Set(
       plan.blocks
-        .filter((b) => b.componentType === 'synthesis_brief' || b.componentType === 'topic_cluster')
+        .filter((b) => b.componentType === 'video_player' || b.componentType === 'video_queue')
         .flatMap((b) => b.sourceItemRefs)
     );
-    expect(crossRefs.size).toBeGreaterThan(0);
-    const kindTypes = ['video_player', 'video_queue', 'headline_strip', 'article_list', 'community_posts'];
-    for (const b of plan.blocks.filter((x) => kindTypes.includes(x.componentType))) {
-      for (const r of b.sourceItemRefs) expect(crossRefs.has(r)).toBe(false);
-    }
+    const clusterRefs = plan.blocks
+      .filter((b) => b.componentType === 'topic_cluster')
+      .flatMap((b) => b.sourceItemRefs);
+    for (const r of clusterRefs) expect(anchorRefs.has(r)).toBe(false);
+    // Clusters must not repeat an item between themselves either.
+    expect(new Set(clusterRefs).size).toBe(clusterRefs.length);
   });
 
   it('allows reuse when synthesis would otherwise leave the page empty', () => {
@@ -329,14 +333,15 @@ describe('heuristicPlan cross-source synthesis', () => {
     expectCatalogConstraints(plan);
   });
 
-  it('emits no topic_cluster for a single-source pool but still a valid page', () => {
+  it('single-source pool: no synthesis brief, but still a topic-composed page', () => {
     const { plan } = heuristicPlan(reqOf(mixedItems()));
     const t = types(plan);
-    expect(t).not.toContain('topic_cluster');
+    // Synthesis is about what SOURCES jointly say, so one source earns none.
     expect(t).not.toContain('synthesis_brief');
     expect(plan.blocks.length).toBeGreaterThanOrEqual(1);
     expect(t[t.length - 1]).toBe('source_list');
     expect(LayoutPlanSchema.safeParse(plan).success).toBe(true);
+    expectCatalogConstraints(plan);
   });
 
   it('follows recipeShape order and spans, applies density, keeps source_list last', () => {

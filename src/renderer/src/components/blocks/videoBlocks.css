@@ -160,6 +160,10 @@
   background: var(--gv-bg-hover);
 }
 
+.gv-video-queue-row--active {
+  border-color: var(--gv-accent);
+}
+
 .gv-video-queue-main {
   display: flex;
   gap: 10px;
@@ -224,16 +228,9 @@
   background: var(--gv-bg-elev);
 }
 
-.gv-headline-card:hover {
-  background: var(--gv-bg-hover);
-}
-
+/* Headline titles are plain text — the '원본' button is the only way out
+   of the page (GOAL.md § Original: explicit escape hatch, never default). */
 .gv-headline-title {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
   color: var(--gv-text);
   font-size: 13px;
   font-weight: 500;
@@ -242,8 +239,4 @@
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-
-.gv-headline-title:hover {
-  color: var(--gv-accent);
 }

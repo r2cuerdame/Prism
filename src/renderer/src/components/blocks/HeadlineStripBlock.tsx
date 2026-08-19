@@ -30,18 +30,15 @@ export default function HeadlineStripBlock({
               <button
                 type="button"
                 className="gv-original-btn"
-                onClick={() => onOpenOriginal(item.originalUrl)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenOriginal(item.originalUrl);
+                }}
               >
                 원본
               </button>
             </div>
-            <button
-              type="button"
-              className="gv-headline-title"
-              onClick={() => onOpenOriginal(item.originalUrl)}
-            >
-              {item.title}
-            </button>
+            <div className="gv-headline-title">{item.title}</div>
           </div>
         ))}
       </div>

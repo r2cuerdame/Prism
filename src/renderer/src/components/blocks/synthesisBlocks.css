@@ -169,21 +169,14 @@
   line-height: 1.2;
 }
 
+/* Plain, non-interactive title — the row's '원본' button is the way out. */
 .gv-tc-title {
-  border: none;
-  background: none;
-  padding: 0;
-  text-align: left;
   font-size: 13.5px;
   font-weight: 600;
   line-height: 1.4;
   color: var(--gv-text, #1c1f24);
-  cursor: pointer;
   min-width: 0;
   flex: 1 1 auto;
-}
-.gv-tc-title:hover {
-  color: var(--gv-accent, #4f7cff);
 }
 
 .gv-tc-meta {

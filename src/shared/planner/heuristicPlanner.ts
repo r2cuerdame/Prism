@@ -132,13 +132,14 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   const pool = available.filter((it) => keptIds.has(it.id));
   const distinctSources = new Set(pool.map((it) => it.sourceName));
 
-  // --- cross-source opener: synthesis brief + topic clusters --------------
+  // --- synthesis opener ---------------------------------------------------
+  // Citing an item does not consume it: a bullet about an article and the
+  // article's own card are different things, so the body still shows it.
   const crossBlocks: ComponentBlock[] = [];
-  const crossUsed = new Set<string>();
-  const clusters = clusterByTopic(pool);
+  const openerClusters = clusterByTopic(pool);
 
   if (pool.length >= 2 && distinctSources.size >= 2) {
-    const synth = buildSynthesisPoints(pool, clusters);
+    const synth = buildSynthesisPoints(pool, openerClusters);
     if (synth.points.length > 0 && synth.citedItems.length >= 2) {
       const brief = makeBlock(
         'synthesis_brief',
@@ -147,35 +148,80 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
         { points: synth.points },
         `${distinctSources.size}개 소스에서 모은 내용을 하나의 브리핑으로 합성했어요.`
       );
-      if (brief) {
-        crossBlocks.push(brief);
-        for (const r of brief.sourceItemRefs) crossUsed.add(r);
-      }
+      if (brief) crossBlocks.push(brief);
     }
   }
 
-  const shownClusters = clusters.slice(0, 2);
-  for (const cluster of shownClusters) {
-    // Interleave before the catalog cap slices to 8, so the surviving refs
-    // still span multiple sources.
+  // --- video anchor -------------------------------------------------------
+  // Kept as a functional anchor (you can actually watch here), deliberately
+  // small so the body stays topic-driven rather than kind-driven.
+  const ANCHOR_VIDEO_CAP = 6;
+  const anchorUsed = new Set<string>();
+  const anchorVideos =
+    mix.video === 'less' ? [] : interleaveBySource(byKind.video).slice(0, ANCHOR_VIDEO_CAP);
+  for (const v of anchorVideos) anchorUsed.add(v.id);
+
+  // Everything the anchor did not take is composed BY TOPIC, across kinds and
+  // sources — the page is not "a video section, then a news section".
+  const bodyPool = pool.filter((it) => !anchorUsed.has(it.id));
+  // A saved Recipe shape wins over topic composition — the user shaped that
+  // page themselves, so honor their sections instead of re-deriving a body.
+  const followRecipe = req.recipeShape !== undefined;
+  const multiSource = followRecipe
+    ? []
+    : clusterByTopic(bodyPool, { minSources: 2, maxClusters: 6 });
+  const inMulti = new Set(multiSource.flatMap((c) => c.items.map((it) => it.id)));
+  const singleSource = followRecipe
+    ? []
+    : clusterByTopic(bodyPool.filter((it) => !inMulti.has(it.id)), {
+        minSources: 1,
+        maxClusters: 6
+      }).filter((c) => c.items.length >= 2);
+  const bodyClusters = [...multiSource, ...singleSource];
+
+  const clusterBlocks: ComponentBlock[] = [];
+  const clustered = new Set<string>();
+  bodyClusters.forEach((cluster, i) => {
     const refs = interleaveBySource(cluster.items).map((it) => it.id);
+    const lastAlone = i === bodyClusters.length - 1 && bodyClusters.length % 2 === 1;
     const block = makeBlock(
       'topic_cluster',
       refs,
-      shownClusters.length === 1 ? 12 : 6,
+      bodyClusters.length === 1 || lastAlone ? 12 : 6,
       { topic: cluster.topic, angle: clusterAngle(cluster) },
-      `${cluster.sources.length}개 소스가 같은 주제를 다뤄 한 카드로 묶었어요.`
+      cluster.sources.length >= 2
+        ? `${cluster.sources.length}개 소스가 같은 주제를 다뤄 한 카드로 묶었어요.`
+        : '같은 흐름의 이야기를 한 카드로 묶었어요.'
     );
     if (block) {
-      crossBlocks.push(block);
-      for (const r of block.sourceItemRefs) crossUsed.add(r);
+      clusterBlocks.push(block);
+      for (const r of block.sourceItemRefs) clustered.add(r);
+    }
+  });
+
+  // Leftovers become mixed cards too, never per-kind sections.
+  const MIXED_CAP = 8;
+  const leftovers = interleaveBySource(bodyPool.filter((it) => !clustered.has(it.id)));
+  const mixedLabels = followRecipe ? [] : ['그 밖에 눈에 띈 것들', '더 둘러보기'];
+  for (let i = 0; i < mixedLabels.length; i++) {
+    const slice = leftovers.slice(i * MIXED_CAP, (i + 1) * MIXED_CAP);
+    if (slice.length < 2) break;
+    const block = makeBlock(
+      'topic_cluster',
+      slice.map((it) => it.id),
+      6,
+      { topic: mixedLabels[i]!, angle: '주제가 겹치지 않는 것들을 종류 구분 없이 모았어요' },
+      '남은 항목을 종류를 섞어 한 카드로 모았어요.'
+    );
+    if (block) {
+      clusterBlocks.push(block);
+      for (const r of block.sourceItemRefs) clustered.add(r);
     }
   }
 
-  // Kind sections get what the synthesis/cluster blocks did not use — unless
-  // that would leave them nothing at all.
-  let remaining = pool.filter((it) => !crossUsed.has(it.id));
-  if (remaining.length === 0 && pool.length > 0) remaining = pool;
+  // Kind sections survive only as the fallback for a pool that refuses to
+  // cluster (e.g. a handful of unrelated items).
+  const remaining = clusterBlocks.length > 0 ? [] : bodyPool;
 
   const remainingByKind: Record<SourceItemKind, SourceItem[]> = {
     video: [],
@@ -185,15 +231,11 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   };
   for (const it of remaining) remainingByKind[it.kind].push(it);
 
-  // --- video section ------------------------------------------------------
+  // --- video anchor blocks -------------------------------------------------
   const videoBlocks: ComponentBlock[] = [];
-  const vids = interleaveBySource(remainingByKind.video).map((v) => v.id);
-  const videoLess = mix.video === 'less';
+  const vids = anchorVideos.map((v) => v.id);
   if (vids.length > 0) {
-    if (videoLess) {
-      const q = makeBlock('video_queue', vids, 4, { title: '추천 영상' }, '영상 비중을 줄여 간단한 목록으로 구성했습니다.');
-      if (q) videoBlocks.push(q);
-    } else if (vids.length === 1) {
+    if (vids.length === 1) {
       const p = makeBlock('video_player', vids, 12, {}, '요청과 관련된 영상 한 편을 크게 보여줍니다.');
       if (p) videoBlocks.push(p);
     } else {
@@ -271,11 +313,10 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
     if (c) postBlocks.push(c);
   }
 
-  // --- kind section ordering by contentBalance weight ---------------------
+  // --- fallback kind sections, ordered by contentBalance weight ------------
   const weight = (k: SourceItemKind): number =>
     req.interpretation.contentBalance[k] ?? DEFAULT_WEIGHT[k];
   const sections: { kind: SourceItemKind; blocks: ComponentBlock[] }[] = [
-    { kind: 'video', blocks: videoBlocks },
     { kind: 'headline', blocks: headlineBlocks },
     { kind: 'article', blocks: articleBlocks },
     { kind: 'post', blocks: postBlocks }
@@ -284,8 +325,13 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
     .map((s, i) => ({ ...s, i }))
     .sort((a, b) => weight(b.kind) - weight(a.kind) || a.i - b.i);
 
-  // Synthesis first, clusters next, kind sections after.
-  let blocks: ComponentBlock[] = [...crossBlocks, ...orderedSections.flatMap((s) => s.blocks)];
+  // Synthesis, then the watchable anchor, then the topic-composed body.
+  let blocks: ComponentBlock[] = [
+    ...crossBlocks,
+    ...videoBlocks,
+    ...clusterBlocks,
+    ...orderedSections.flatMap((s) => s.blocks)
+  ];
 
   // --- Recipe shape: preferred section order/spans ------------------------
   if (req.recipeShape) blocks = applyRecipeShape(blocks, req.recipeShape);

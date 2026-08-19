@@ -74,13 +74,7 @@ export default function TopicClusterBlock(props: BlockRenderProps): ReactElement
                 <div className="gv-tc-main">
                   <div className="gv-tc-title-line">
                     <span className="gv-tc-kind">{KIND_LABELS[item.kind]}</span>
-                    <button
-                      type="button"
-                      className="gv-tc-title"
-                      onClick={() => onOpenOriginal(item.originalUrl)}
-                    >
-                      {item.title}
-                    </button>
+                    <span className="gv-tc-title">{item.title}</span>
                   </div>
                   <div className="gv-tc-meta">
                     <button
@@ -99,7 +93,10 @@ export default function TopicClusterBlock(props: BlockRenderProps): ReactElement
                     <button
                       type="button"
                       className="gv-tc-open"
-                      onClick={() => onOpenOriginal(item.originalUrl)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOpenOriginal(item.originalUrl);
+                      }}
                     >
                       원본
                     </button>

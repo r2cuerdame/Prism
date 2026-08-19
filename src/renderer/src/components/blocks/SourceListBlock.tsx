@@ -55,15 +55,20 @@ export default function SourceListBlock({
             const time = formatTime(item.retrievedAt);
             return (
               <div key={item.id} className="gv-source-row">
-                <button
-                  type="button"
-                  className="gv-source-item-title"
-                  onClick={() => onOpenOriginal(item.originalUrl)}
-                >
-                  {item.title}
-                </button>
+                <span className="gv-source-item-title">{item.title}</span>
                 {host ? <span className="gv-source-host">{host}</span> : null}
                 {time ? <span className="gv-source-time">{time}</span> : null}
+                {/* This list is the evidence, so every row keeps a way out. */}
+                <button
+                  type="button"
+                  className="gv-open-original"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenOriginal(item.originalUrl);
+                  }}
+                >
+                  원본
+                </button>
               </div>
             );
           })}

@@ -62,7 +62,10 @@ export default function SynthesisBriefBlock(props: BlockRenderProps): ReactEleme
                   type="button"
                   className="gv-syn-cite"
                   title={item.sourceName}
-                  onClick={() => onOpenOriginal(item.originalUrl)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenOriginal(item.originalUrl);
+                  }}
                 >
                   {citeIndex + 1}
                 </button>
