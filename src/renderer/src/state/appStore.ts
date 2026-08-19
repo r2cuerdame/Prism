@@ -49,6 +49,8 @@ export interface AppState {
   updater: UpdaterStatus;
   panel: PanelKind;
   inspectBlockId: string | null;
+  /** Pending Codex sign-in URL, shown until the login completes. */
+  authUrl: string | null;
   toast: string | null;
 }
 
@@ -65,6 +67,7 @@ const initialState: AppState = {
   updater: { state: 'idle' },
   panel: null,
   inspectBlockId: null,
+  authUrl: null,
   toast: null
 };
 
@@ -658,10 +661,16 @@ class AppStore {
   }
 
   async loginOauth(): Promise<void> {
-    this.toast('브라우저에서 Claude 계정 로그인을 진행해 주세요…');
+    this.toast('Codex 로그인을 여는 중이에요…');
     const res = await window.gptb.authLogin();
-    this.set({ settings: res.settings });
+    this.set({ settings: res.settings, authUrl: res.ok ? null : (res.url ?? null) });
     this.toast(res.message);
+  }
+
+  /** Reopen the sign-in page the CLI handed us, for a browser that never came up. */
+  openAuthUrl(): void {
+    const url = this.state.authUrl;
+    if (url !== null) void window.gptb.openExternal(url);
   }
 
   async checkUpdates(): Promise<void> {

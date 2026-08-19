@@ -389,9 +389,15 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
 
   ipcMain.handle(IPC.authStatus, () => settingsView(true));
   ipcMain.handle(IPC.authLogin, async () => {
-    const result = await runOauthLogin();
+    // The CLI's own browser launch is unreliable when spawned from a GUI
+    // process, so open the sign-in URL ourselves the moment it appears.
+    const result = await runOauthLogin({
+      onUrl: (url) => {
+        if (isSafeHttpUrl(url)) void shell.openExternal(url);
+      }
+    });
     const view = await settingsView(true);
-    return { ok: result.ok, message: result.message, settings: view };
+    return { ok: result.ok, message: result.message, url: result.url, settings: view };
   });
 
   const updater = createUpdater({

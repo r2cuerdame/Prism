@@ -139,6 +139,8 @@ export interface SettingsView {
 export interface AuthLoginResult {
   ok: boolean;
   message: string;
+  /** Sign-in URL when the flow needs the user to finish it in a browser. */
+  url?: string;
   settings: SettingsView;
 }
 

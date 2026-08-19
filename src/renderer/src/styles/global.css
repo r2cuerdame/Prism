@@ -1047,6 +1047,18 @@ button.gv-src-chip:hover {
 .auth-status--none {
   color: var(--gv-text-dim);
 }
+.auth-url-btn {
+  border: 1px solid var(--gv-accent) !important;
+  color: var(--gv-accent) !important;
+  white-space: nowrap;
+}
+.auth-url {
+  font-size: 10.5px;
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+}
+
 .settings-disclosure {
   font-size: 12px;
   color: var(--gv-text-muted);

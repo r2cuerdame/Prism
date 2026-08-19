@@ -34,6 +34,14 @@ export default function SettingsPanel(): ReactElement {
           상태 새로고침
         </button>
       </div>
+      {state.authUrl !== null && (
+        <div className="settings-row">
+          <button className="auth-url-btn" onClick={() => appStore.openAuthUrl()}>
+            로그인 페이지 다시 열기
+          </button>
+          <span className="panel-note auth-url">{state.authUrl}</span>
+        </div>
+      )}
       <h4>업데이트</h4>
       <div className="settings-row">
         <label>
