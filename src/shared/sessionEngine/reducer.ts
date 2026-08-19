@@ -4,6 +4,8 @@ import type { ComponentBlock, LayoutPlan } from '@shared/domain/layoutPlan';
 import type { SourceItem, SourceItemKind } from '@shared/domain/sourceItem';
 import { SOURCE_ITEM_KINDS } from '@shared/domain/sourceItem';
 import type { Provenance } from '@shared/domain/provenance';
+import { splitRegion } from './splitRegion';
+import { getCatalogEntry } from '@shared/catalog/catalog';
 
 const DEFAULT_TITLE = '새 세션';
 const MAX_NOTES = 10;
@@ -133,6 +135,17 @@ export function applySessionCommand(state: SessionState, cmd: SessionCommand, at
       return withBlocks(state, blocks, ts);
     }
 
+    case 'play_item': {
+      return playItem(state, cmd.itemId, cmd.playerBlockId, ts);
+    }
+
+    case 'split_region': {
+      if (!state.plan) return state;
+      const blocks = splitRegion(state.plan, cmd.blockId, cmd.targetBlockId, cmd.side);
+      if (blocks === null) return state;
+      return withBlocks(state, blocks, ts);
+    }
+
     case 'insert_block': {
       if (!state.plan) return state;
       const blocks = state.plan.blocks.slice();
@@ -217,6 +230,59 @@ export function applySessionCommand(state: SessionState, cmd: SessionCommand, at
     default:
       return state;
   }
+}
+
+const PLAYER_TYPE = 'video_player';
+
+/**
+ * Send a video to a player block. Any block can hold videos (queue, topic
+ * cluster, the player's own strip) but only `video_player` can play one, so
+ * the item is adopted into the player's refs and made active. Invalid input
+ * (no player, unknown item, non-video item) returns the SAME state reference.
+ */
+function playItem(
+  state: SessionState,
+  itemId: string,
+  playerBlockId: string | undefined,
+  ts: string
+): SessionState {
+  if (!state.plan) return state;
+  const blocks = state.plan.blocks;
+
+  let idx = -1;
+  if (playerBlockId !== undefined) {
+    idx = blocks.findIndex((b) => b.id === playerBlockId && b.componentType === PLAYER_TYPE);
+  }
+  if (idx < 0) idx = blocks.findIndex((b) => b.componentType === PLAYER_TYPE);
+  if (idx < 0) return state;
+
+  const item = state.items[itemId];
+  if (!item || item.kind !== 'video') return state;
+
+  const block = blocks[idx];
+  let refs = block.sourceItemRefs;
+  if (!refs.includes(itemId)) {
+    refs = [...refs, itemId];
+    const cap = getCatalogEntry(PLAYER_TYPE)?.maxItems;
+    if (typeof cap === 'number' && cap > 0 && refs.length > cap) {
+      // The player shows `activeItemId`, falling back to its first ref — never
+      // evict either that or the item the user just asked for.
+      const playing =
+        typeof block.state?.activeItemId === 'string' ? block.state.activeItemId : refs[0];
+      while (refs.length > cap) {
+        const dropAt = refs.findIndex((ref) => ref !== itemId && ref !== playing);
+        if (dropAt < 0) break;
+        refs.splice(dropAt, 1);
+      }
+    }
+  }
+
+  const nextBlock: ComponentBlock = {
+    ...block,
+    sourceItemRefs: refs,
+    state: { ...block.state, activeItemId: itemId }
+  };
+  return withBlocks(state, replaceBlockAt(blocks, idx, nextBlock), ts);
 }
 
 function mergeItems(

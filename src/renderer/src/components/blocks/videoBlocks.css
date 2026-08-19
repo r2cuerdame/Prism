@@ -160,8 +160,16 @@
   background: var(--gv-bg-hover);
 }
 
-.gv-video-queue-row--active {
-  border-color: var(--gv-accent);
+/* The player lives in another block, so the queue advertises the action
+   ('재생') rather than claiming to know what is currently playing. */
+.gv-video-queue-play {
+  font-size: 11px;
+  color: var(--gv-text-dim);
+}
+
+.gv-video-queue-main:hover .gv-video-queue-play,
+.gv-video-queue-main:focus-visible .gv-video-queue-play {
+  color: var(--gv-accent);
 }
 
 .gv-video-queue-main {

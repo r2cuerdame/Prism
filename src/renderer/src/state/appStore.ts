@@ -17,7 +17,7 @@ import {
   type SessionHistory
 } from '@shared/sessionEngine/history';
 import { inferPreferenceSignals } from '@shared/sessionEngine/preferenceInfer';
-import { parseEditRules } from '@shared/planner/nlRules';
+import { parseBlockTuning, parseEditRules } from '@shared/planner/nlRules';
 import { getCatalogEntry } from '@shared/catalog/catalog';
 import type {
   AdapterReport,
@@ -464,6 +464,60 @@ class AppStore {
       applied
         ? '튜닝을 지금 페이지에 적용했어요. 다음 재생성에도 계속 반영돼요.'
         : '튜닝으로 기억했어요. 재생성하면 이 지시가 반영돼요.'
+    );
+  }
+
+  /**
+   * Section tuning: the same tuning language as `tuneSession`, but aimed at ONE
+   * block from its own title bar. Rules first; the LLM only ever sees this one
+   * block and only its commands for this block are kept — a section tuning must
+   * never rearrange the rest of the page.
+   */
+  async tuneBlock(blockId: string, text: string): Promise<void> {
+    const act = this.active();
+    if (!act) return;
+    const instruction = text.trim();
+    if (instruction === '') return;
+    const sid = act.id;
+    const state = act.entry.history.present;
+    const block = state.plan?.blocks.find((b) => b.id === blockId);
+    if (!block) return;
+    const catalogEntry = getCatalogEntry(block.componentType);
+    const label =
+      typeof block.props.title === 'string' && block.props.title.trim() !== ''
+        ? block.props.title
+        : (catalogEntry?.title ?? block.componentType);
+
+    // Remember it first, named by section, so regeneration keeps the intent.
+    this.dispatchTo(
+      sid,
+      { type: 'add_hint_note', note: `[${label}] ${instruction}`.slice(0, 400) },
+      { silent: true }
+    );
+
+    let applied = false;
+    const ruleCommands = parseBlockTuning(instruction, block);
+    if (ruleCommands && ruleCommands.length > 0) {
+      for (const cmd of ruleCommands) this.dispatchTo(sid, cmd);
+      applied = true;
+    } else if (this.state.settings && this.state.settings.authMethod !== 'none') {
+      const full = this.digest(state);
+      const res = await window.gptb.interpretEdit({
+        utterance: instruction,
+        // Only this block, so the model cannot wander off the section.
+        digest: { ...full, blocks: full.blocks.filter((b) => b.id === blockId) }
+      });
+      if (res.ok) {
+        const scoped = res.commands.filter((c) => 'blockId' in c && c.blockId === blockId);
+        for (const cmd of scoped) this.dispatchTo(sid, cmd);
+        applied = scoped.length > 0;
+      }
+    }
+
+    this.toast(
+      applied
+        ? `"${label}" 섹션을 조정했어요. 다음 재생성에도 반영돼요.`
+        : `"${label}" 섹션 조정을 이해하지 못했어요. 튜닝으로 기억해 둘게요.`
     );
   }
 

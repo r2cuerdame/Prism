@@ -13,7 +13,7 @@ const KIND_LABELS: Record<SourceItem['kind'], string> = {
 
 /** One topic covered by several different sources, gathered into one card. */
 export default function TopicClusterBlock(props: BlockRenderProps): ReactElement | null {
-  const { block, items, onOpenOriginal, onInspect } = props;
+  const { block, items, dispatch, onOpenOriginal, onInspect } = props;
 
   // Planner props are LLM output — narrow at runtime; catalog `topic_cluster`
   // requires a topic and minItems 2, fallback 'hide'.
@@ -84,6 +84,19 @@ export default function TopicClusterBlock(props: BlockRenderProps): ReactElement
                     >
                       {item.sourceName}
                     </button>
+                    {item.kind === 'video' ? (
+                      <button
+                        type="button"
+                        className="gv-tc-play"
+                        aria-label={`${item.title} 재생`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          dispatch({ type: 'play_item', itemId: item.id });
+                        }}
+                      >
+                        ▶ 재생
+                      </button>
+                    ) : null}
                     {post && typeof post.points === 'number' ? (
                       <span>▲{post.points}</span>
                     ) : null}

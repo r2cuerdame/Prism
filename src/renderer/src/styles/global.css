@@ -609,6 +609,68 @@ select:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+  text-align: left;
+  border-radius: 6px;
+  padding: 2px 5px;
+  margin-left: -5px;
+}
+button.gv-block-title:hover {
+  color: var(--gv-text);
+  background: var(--gv-bg-hover);
+}
+
+/* Inline rename, right where the title sits. */
+.gv-title-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 320px;
+  font-size: 12.5px;
+  font-weight: 650;
+  padding: 2px 6px;
+  background: var(--gv-bg-soft);
+  border: 1px solid var(--gv-accent);
+  border-radius: 6px;
+}
+
+/* Per-section tuning row, directly under the section title. */
+.gv-block-tune {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--gv-bg-soft);
+  border-bottom: 1px solid var(--gv-border);
+}
+
+.gv-block-tune input {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  padding: 6px 9px;
+  background: var(--gv-bg-elev);
+  border: 1px solid var(--gv-border);
+  border-radius: var(--gv-radius-sm);
+  color: var(--gv-text);
+}
+.gv-block-tune input:focus {
+  border-color: var(--gv-accent);
+}
+.gv-block-tune input::placeholder {
+  color: var(--gv-text-muted);
+}
+
+.gv-block-tune-apply {
+  flex: none;
+  border-radius: 999px;
+  padding: 5px 13px;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--gv-accent);
+  color: var(--gv-on-accent);
+}
+.gv-block-tune-apply:hover {
+  filter: brightness(1.08);
 }
 
 .gv-badge {
@@ -629,7 +691,8 @@ select:focus {
 }
 
 .gv-block:hover .gv-block-tools,
-.gv-block:focus-within .gv-block-tools {
+.gv-block:focus-within .gv-block-tools,
+.gv-block--tuning .gv-block-tools {
   opacity: 1;
 }
 

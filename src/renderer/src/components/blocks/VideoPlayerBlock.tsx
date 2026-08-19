@@ -17,6 +17,8 @@ export default function VideoPlayerBlock({
 }: BlockRenderProps): ReactElement | null {
   const videos = items.filter((i) => i.kind === 'video');
 
+  // activeItemId is set by `play_item` from anywhere on the page; fall back to
+  // the first video when it is missing or points at an item we no longer hold.
   const stateActiveId =
     typeof block.state?.activeItemId === 'string' ? block.state.activeItemId : null;
   const active = videos.find((i) => i.id === stateActiveId) ?? videos[0];
@@ -26,7 +28,10 @@ export default function VideoPlayerBlock({
     return <div className="gv-block-empty">콘텐츠를 준비하지 못했어요</div>;
   }
 
-  const autoplay = block.props.autoplay === true;
+  // A resolved activeItemId means the user explicitly picked this video, so
+  // start it; props.autoplay stays the first-render switch.
+  const userPicked = stateActiveId !== null && active.id === stateActiveId;
+  const autoplay = block.props.autoplay === true || userPicked;
   const src = `https://www.youtube-nocookie.com/embed/${embedId}?rel=0${autoplay ? '&autoplay=1' : ''}`;
   const channel = getVideoPayload(active)?.channel;
   const queue = videos.filter((i) => i.id !== active.id);
@@ -72,12 +77,9 @@ export default function VideoPlayerBlock({
               <button
                 type="button"
                 className="gv-video-card-main"
+                aria-label={`${item.title} 재생`}
                 onClick={() =>
-                  dispatch({
-                    type: 'set_block_state',
-                    blockId: block.id,
-                    state: { activeItemId: item.id }
-                  })
+                  dispatch({ type: 'play_item', itemId: item.id, playerBlockId: block.id })
                 }
               >
                 {item.media?.thumbnailUrl ? (

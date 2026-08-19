@@ -14,32 +14,22 @@ export default function VideoQueueBlock({
   if (videos.length === 0) return null;
 
   const title = typeof block.props.title === 'string' ? block.props.title : null;
-  const activeItemId =
-    typeof block.state?.activeItemId === 'string' ? block.state.activeItemId : null;
 
+  // The player is a SEPARATE block, so which video is playing is not knowable
+  // from here — show a '재생' affordance instead of a faked active state.
   return (
     <div className="gv-video-queue">
       {title ? <div className="gv-block-caption">{title}</div> : null}
       <ul className="gv-video-queue-list">
         {videos.map((item) => {
           const channel = getVideoPayload(item)?.channel;
-          const isActive = item.id === activeItemId;
           return (
-            <li
-              key={item.id}
-              className={`gv-video-queue-row${isActive ? ' gv-video-queue-row--active' : ''}`}
-            >
+            <li key={item.id} className="gv-video-queue-row">
               <button
                 type="button"
                 className="gv-video-queue-main"
-                aria-pressed={isActive}
-                onClick={() =>
-                  dispatch({
-                    type: 'set_block_state',
-                    blockId: block.id,
-                    state: { activeItemId: item.id }
-                  })
-                }
+                aria-label={`${item.title} 재생`}
+                onClick={() => dispatch({ type: 'play_item', itemId: item.id })}
               >
                 {item.media?.thumbnailUrl ? (
                   <img
@@ -54,6 +44,9 @@ export default function VideoQueueBlock({
                 <span className="gv-video-queue-text">
                   <span className="gv-video-queue-title">{item.title}</span>
                   {channel ? <span className="gv-video-queue-channel">{channel}</span> : null}
+                  <span className="gv-video-queue-play" aria-hidden="true">
+                    ▶ 재생
+                  </span>
                 </span>
               </button>
               <div className="gv-item-chips">

@@ -397,3 +397,119 @@ describe('apply_plan', () => {
     expect(pruned.provenance.p2).toBeUndefined();
   });
 });
+
+describe('play_item', () => {
+  const PLAYER_MAX = 8; // catalog video_player maxItems
+
+  function video(id: string): SourceItem {
+    return makeItem(id, { kind: 'video', payload: { videoId: 'yt-' + id, channel: 'ch' } });
+  }
+
+  function videoState(
+    blocks: ComponentBlock[],
+    ids: string[] = ['v1', 'v2', 'v3']
+  ): SessionState {
+    const items: Record<string, SourceItem> = {};
+    for (const id of ids) items[id] = video(id);
+    return { ...baseState(blocks), items };
+  }
+
+  function player(id: string, over: Partial<ComponentBlock> = {}): ComponentBlock {
+    return makeBlock(id, { componentType: 'video_player', sourceItemRefs: ['v1'], ...over });
+  }
+
+  it('plays into the first video_player and sets activeItemId', () => {
+    const s = videoState([makeBlock('q1', { componentType: 'video_queue' }), player('p1'), player('p2')]);
+    const next = applySessionCommand(s, { type: 'play_item', itemId: 'v2' }, T1);
+    expect(next.plan?.blocks[1].state?.activeItemId).toBe('v2');
+    expect(next.plan?.blocks[2].state?.activeItemId).toBeUndefined();
+    expect(next.updatedAt).toBe(T1);
+  });
+
+  it('appends the ref when the player does not have the item yet', () => {
+    const s = videoState([player('p1', { sourceItemRefs: ['v1'] })]);
+    const next = applySessionCommand(s, { type: 'play_item', itemId: 'v2' }, T1);
+    expect(next.plan?.blocks[0].sourceItemRefs).toEqual(['v1', 'v2']);
+  });
+
+  it('keeps refs unique when the item is already queued', () => {
+    const s = videoState([player('p1', { sourceItemRefs: ['v1', 'v2'] })]);
+    const next = applySessionCommand(s, { type: 'play_item', itemId: 'v2' }, T1);
+    expect(next.plan?.blocks[0].sourceItemRefs).toEqual(['v1', 'v2']);
+    expect(next.plan?.blocks[0].state?.activeItemId).toBe('v2');
+  });
+
+  it('respects the video_player maxItems cap, evicting a non-active, non-new ref', () => {
+    const full = Array.from({ length: PLAYER_MAX }, (_, i) => `v${i + 1}`);
+    const s = videoState(
+      [player('p1', { sourceItemRefs: full, state: { activeItemId: 'v1' } })],
+      [...full, 'vNew']
+    );
+    const next = applySessionCommand(s, { type: 'play_item', itemId: 'vNew' }, T1);
+    const refs = next.plan?.blocks[0].sourceItemRefs ?? [];
+    expect(refs).toHaveLength(PLAYER_MAX);
+    expect(refs).toContain('vNew');
+    expect(refs).toContain('v1'); // still playing when the click landed
+    expect(refs).not.toContain('v2'); // first evictable ref
+    expect(next.plan?.blocks[0].state?.activeItemId).toBe('vNew');
+  });
+
+  it('protects the first ref when no activeItemId is set (player falls back to it)', () => {
+    const full = Array.from({ length: PLAYER_MAX }, (_, i) => `v${i + 1}`);
+    const s = videoState([player('p1', { sourceItemRefs: full, state: {} })], [...full, 'vNew']);
+    const refs =
+      applySessionCommand(s, { type: 'play_item', itemId: 'vNew' }, T1).plan?.blocks[0]
+        .sourceItemRefs ?? [];
+    expect(refs).toEqual(['v1', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8', 'vNew']);
+  });
+
+  it('targets an explicit playerBlockId', () => {
+    const s = videoState([player('p1'), player('p2')]);
+    const next = applySessionCommand(
+      s,
+      { type: 'play_item', itemId: 'v2', playerBlockId: 'p2' },
+      T1
+    );
+    expect(next.plan?.blocks[0].state?.activeItemId).toBeUndefined();
+    expect(next.plan?.blocks[1].state?.activeItemId).toBe('v2');
+    expect(next.plan?.blocks[1].sourceItemRefs).toEqual(['v1', 'v2']);
+  });
+
+  it('falls back to the first player when playerBlockId is unknown or not a player', () => {
+    const s = videoState([player('p1'), makeBlock('list1')]);
+    for (const target of ['nope', 'list1']) {
+      const next = applySessionCommand(
+        s,
+        { type: 'play_item', itemId: 'v2', playerBlockId: target },
+        T1
+      );
+      expect(next.plan?.blocks[0].state?.activeItemId).toBe('v2');
+      expect(next.plan?.blocks[1].state?.activeItemId).toBeUndefined();
+    }
+  });
+
+  it('preserves other block state keys', () => {
+    const s = videoState([player('p1', { state: { activeItemId: 'v1', muted: true } })]);
+    const next = applySessionCommand(s, { type: 'play_item', itemId: 'v2' }, T1);
+    expect(next.plan?.blocks[0].state).toEqual({ activeItemId: 'v2', muted: true });
+  });
+
+  it('is a no-op returning the same state when nothing can play', () => {
+    const noPlayer = videoState([makeBlock('q1', { componentType: 'video_queue' })]);
+    expect(applySessionCommand(noPlayer, { type: 'play_item', itemId: 'v1' }, T1)).toBe(noPlayer);
+
+    const withPlayer = videoState([player('p1')]);
+    expect(applySessionCommand(withPlayer, { type: 'play_item', itemId: 'ghost' }, T1)).toBe(
+      withPlayer
+    );
+
+    const nonVideo: SessionState = {
+      ...withPlayer,
+      items: { ...withPlayer.items, a1: makeItem('a1', { kind: 'article' }) }
+    };
+    expect(applySessionCommand(nonVideo, { type: 'play_item', itemId: 'a1' }, T1)).toBe(nonVideo);
+
+    const noPlan = createSessionState('s1', T0);
+    expect(applySessionCommand(noPlan, { type: 'play_item', itemId: 'v1' }, T1)).toBe(noPlan);
+  });
+});

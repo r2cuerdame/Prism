@@ -5,10 +5,15 @@ import { applySessionCommand } from './reducer';
 const MAX_PAST = 100;
 const MAX_SNAPSHOTS = 30;
 
-/** Commands that mutate view state but should not create undo steps. */
+/**
+ * Commands that mutate view state but should not create undo steps. Choosing
+ * what to watch is viewing, not composing — clicking through a queue must not
+ * bury the user's real edits under a pile of undo steps.
+ */
 const TRANSIENT_COMMANDS: ReadonlySet<SessionCommandType> = new Set<SessionCommandType>([
   'set_block_state',
-  'set_status'
+  'set_status',
+  'play_item'
 ]);
 
 export interface SessionHistory {

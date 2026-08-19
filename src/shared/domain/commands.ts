@@ -47,6 +47,28 @@ export const SessionCommandSchema = z.discriminatedUnion('type', [
     blockId: z.string(),
     state: z.record(z.string(), z.unknown())
   }),
+  /**
+   * Route a video item to the page's player. Videos live in many blocks
+   * (queue, topic cluster, the player itself) but the player is a separate
+   * block, so playing is a page-level command rather than block state.
+   * `playerBlockId` targets one player; omitted, the first one on the page wins.
+   */
+  z.object({
+    type: z.literal('play_item'),
+    itemId: z.string(),
+    playerBlockId: z.string().optional()
+  }),
+  /**
+   * Drag a block onto a region and the region splits: left/right share the row,
+   * top/bottom stack into bands. This is what pointer drags emit; move_block
+   * remains the plain reorder used by keyboard and fallbacks.
+   */
+  z.object({
+    type: z.literal('split_region'),
+    blockId: z.string(),
+    targetBlockId: z.string(),
+    side: z.enum(['left', 'right', 'top', 'bottom'])
+  }),
   z.object({
     type: z.literal('insert_block'),
     block: ComponentBlockSchema,

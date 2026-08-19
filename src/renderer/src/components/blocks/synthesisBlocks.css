@@ -188,6 +188,23 @@
   color: var(--gv-text-muted, #8a8f98);
 }
 
+/* Videos in a cluster are playable in the page's player (play_item). */
+.gv-tc-play {
+  border: 1px solid var(--gv-border, #2a2f3a);
+  border-radius: 999px;
+  background: none;
+  padding: 2px 8px;
+  color: var(--gv-text-muted, #8a8f98);
+  font-size: 11px;
+  line-height: 1.3;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.gv-tc-play:hover {
+  color: var(--gv-accent, #4f7cff);
+  border-color: var(--gv-accent, #4f7cff);
+}
+
 .gv-tc-open {
   border: none;
   background: none;

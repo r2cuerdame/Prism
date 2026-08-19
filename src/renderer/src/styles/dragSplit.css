@@ -1,0 +1,80 @@
+/* Drag-to-split affordances: where you drop decides how the region divides. */
+
+.gv-grid--dragging .gv-block {
+  transition: outline-color 0.12s ease;
+}
+
+/* The hovered block shows the edge it is about to give up. */
+.gv-block--drop {
+  outline: 1px solid var(--gv-border-strong);
+  outline-offset: 0;
+}
+
+.gv-drop-hint {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  background: var(--gv-accent);
+  border-radius: 3px;
+  box-shadow: 0 0 14px rgba(124, 154, 255, 0.55);
+}
+
+.gv-drop-hint--left,
+.gv-drop-hint--right {
+  top: 6px;
+  bottom: 6px;
+  width: 4px;
+}
+.gv-drop-hint--left {
+  left: 0;
+}
+.gv-drop-hint--right {
+  right: 0;
+}
+
+.gv-drop-hint--top,
+.gv-drop-hint--bottom {
+  left: 6px;
+  right: 6px;
+  height: 4px;
+}
+.gv-drop-hint--top {
+  top: 0;
+}
+.gv-drop-hint--bottom {
+  bottom: 0;
+}
+
+/* A soft wash over the half that the dragged block will take. */
+.gv-drop-wash {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  background: var(--gv-accent-soft);
+  border-radius: var(--gv-radius);
+}
+
+.gv-drop-wash--left {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 50%;
+}
+.gv-drop-wash--right {
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 50%;
+}
+.gv-drop-wash--top {
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 34%;
+}
+.gv-drop-wash--bottom {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 34%;
+}
