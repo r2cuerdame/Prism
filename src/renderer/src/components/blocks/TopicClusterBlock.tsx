@@ -3,6 +3,7 @@ import type { BlockRenderProps } from './blockContract';
 import type { SourceItem } from '@shared/domain/sourceItem';
 import { getPostPayload } from '@shared/domain/sourceItem';
 import { visibleItemCount } from '@shared/catalog/catalog';
+import { interleaveBySource } from '@shared/planner/crossSource';
 import './synthesisBlocks.css';
 
 const KIND_LABELS: Record<SourceItem['kind'], string> = {
@@ -32,22 +33,17 @@ export default function TopicClusterBlock(props: BlockRenderProps): ReactElement
   const angle =
     typeof rawAngle === 'string' && rawAngle.trim().length > 0 ? rawAngle.trim() : null;
 
-  const visible = items.slice(
+  // The card is a mix, not a stack of sites: alternate sources item by item and
+  // never group rows under a source heading. The source stays on each row's
+  // chip. Interleaving here as well as in the planner keeps the guarantee even
+  // when the LLM ordered the refs by source.
+  const visible = interleaveBySource(items).slice(
     0,
     visibleItemCount(block.componentType, block.props.maxItems, items.length)
   );
 
-  // Distinct participating sources, in item order — makes the cross-source
-  // nature of the cluster obvious at a glance.
+  // Distinct participating sources — makes the mix obvious at a glance.
   const sourceNames = [...new Set(visible.map((item) => item.sourceName))];
-
-  // Rows grouped visually by source, preserving first-seen order.
-  const groups = new Map<string, SourceItem[]>();
-  for (const item of visible) {
-    const group = groups.get(item.sourceName);
-    if (group) group.push(item);
-    else groups.set(item.sourceName, [item]);
-  }
 
   // Only the first video/article row shows its thumbnail (keeps the card dense).
   const thumbItemId = visible.find(
@@ -64,14 +60,12 @@ export default function TopicClusterBlock(props: BlockRenderProps): ReactElement
         {angle ? <p className="gv-tc-angle">{angle}</p> : null}
         <div className="gv-tc-sources">{sourceNames.join(' · ')}</div>
       </header>
-      {[...groups.entries()].map(([sourceName, groupItems]) => (
-        <div key={sourceName} className="gv-tc-group">
-          {groupItems.map((item) => {
-            const post = getPostPayload(item);
-            const thumb =
-              item.id === thumbItemId ? item.media?.thumbnailUrl : undefined;
-            return (
-              <div key={item.id} className="gv-tc-row">
+      <div className="gv-tc-rows">
+        {visible.map((item) => {
+          const post = getPostPayload(item);
+          const thumb = item.id === thumbItemId ? item.media?.thumbnailUrl : undefined;
+          return (
+            <div key={item.id} className="gv-tc-row">
                 {thumb ? (
                   <img
                     className="gv-tc-thumb"
@@ -127,11 +121,10 @@ export default function TopicClusterBlock(props: BlockRenderProps): ReactElement
                     </button>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      ))}
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }

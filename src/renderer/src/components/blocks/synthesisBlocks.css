@@ -117,14 +117,11 @@
   color: var(--gv-text-muted, #8a8f98);
 }
 
-.gv-tc-group {
+/* One continuous mixed list — no per-source boxes, so nothing reads as
+   "this part of the card is that site". */
+.gv-tc-rows {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px 10px;
-  background: var(--gv-surface-muted, transparent);
-  border: 1px solid var(--gv-border, #d7dae0);
-  border-radius: var(--gv-radius-sm, 6px);
 }
 
 .gv-tc-row {
@@ -132,6 +129,13 @@
   gap: 10px;
   align-items: flex-start;
   min-width: 0;
+  padding: 9px 2px;
+  border-top: 1px solid var(--gv-border, #d7dae0);
+}
+
+.gv-tc-rows > .gv-tc-row:first-child {
+  border-top: none;
+  padding-top: 2px;
 }
 
 .gv-tc-thumb {

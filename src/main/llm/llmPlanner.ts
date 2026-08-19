@@ -66,7 +66,7 @@ Compose the whole page as topics that cut across both:
 - Then, if there are videos worth watching, ONE video_player (+ optional video_queue) as the watchable anchor. Keep it small; it is an anchor, not a video section.
 - The body is topic_cluster blocks. Each is one thread: an article + a community thread + a video about the same thing is the ideal card. Prefer clusters spanning several sources, but a single-source thread is fine when it is genuinely one story. Use as many as the material supports (typically 2-6), two per row at span 6.
 - Anything that fits no thread goes into a final mixed topic_cluster (e.g. topic "그 밖에 눈에 띈 것들") that mixes kinds and sources. Reach for article_list / community_posts / headline_strip ONLY when the material truly refuses to form threads — they are a fallback, not the skeleton.
-- Whenever a block holds several items, INTERLEAVE the sources: never fill one card with items that all come from the same sourceName if others are available.
+- Whenever a block holds several items, INTERLEAVE the sources ITEM BY ITEM: sourceItemIds must alternate between sourceNames rather than list one source's items and then the next source's. A card is a mix, not a stack of sites — never fill one card with items that all come from the same sourceName if others are available, and never order a card's items so they read as per-source groups.
 
 Other rules:
 - Use ONLY the provided component catalog and ONLY the provided source item ids. Never invent ids or content beyond the synthesis text you write.

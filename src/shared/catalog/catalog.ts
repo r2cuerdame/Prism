@@ -182,7 +182,7 @@ export const COMPONENT_CATALOG: CatalogEntry[] = [
     version: 1,
     title: '주제 묶음',
     descriptionForPlanner:
-      'One topic covered by SEVERAL DIFFERENT sources, gathered into a single card: props.topic names the thread, props.angle (optional) says what differs between them. sourceItemRefs MUST span at least two distinct sources (and may mix kinds: an article, a video and a community thread about the same thing). Use 1-3 of these for the main threads of the page. Never use it for items that all come from one source.',
+      'One topic covered by SEVERAL DIFFERENT sources, gathered into a single card: props.topic names the thread, props.angle (optional) says what differs between them, props.title optionally renames the section. sourceItemRefs MUST span at least two distinct sources (and may mix kinds: an article, a video and a community thread about the same thing) and must ALTERNATE between sources item by item — the card renders one continuous mixed list with no per-source grouping. Use 1-3 of these for the main threads of the page. Never use it for items that all come from one source.',
     propsSchema: z.object({
       title: titleProp,
       topic: z.string().max(120),
