@@ -159,7 +159,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
     return {
       runner: createCodexRunner({
         ready: view.authMethod !== 'none',
-        model: s.plannerModel === '' ? undefined : s.plannerModel
+        // Spark measured 2.5-3x faster than the CLI's default model with
+        // equivalent page quality; settings.plannerModel still overrides.
+        model: s.plannerModel === '' ? 'gpt-5.3-codex-spark' : s.plannerModel
       })
     };
   };
