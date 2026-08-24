@@ -19,12 +19,12 @@ import { InterpretedIntentSchema } from '@shared/domain/intent';
 import { ComponentBlockSchema } from '@shared/domain/layoutPlan';
 import { SourceItemSchema } from '@shared/domain/sourceItem';
 import { interleaveBySource } from '@shared/planner/crossSource';
-import { RecipeSchema } from '@shared/domain/recipe';
+import { RecipeLayoutSlotSchema, RecipeSchema } from '@shared/domain/recipe';
 import { PreferenceSignalSchema } from '@shared/domain/preference';
 import { GeneratedSnapshotSchema } from '@shared/domain/session';
 import { getCatalogEntry } from '@shared/catalog/catalog';
 import type { InterpretedIntent } from '@shared/domain/intent';
-import type { PlanRequest } from '@shared/planner/plannerTypes';
+import type { PlanRequest, PlanResult } from '@shared/planner/plannerTypes';
 import { interpretIntentRules } from '@shared/planner/heuristicIntent';
 import { heuristicPlan } from '@shared/planner/heuristicPlanner';
 import { createHttpClient } from './sources/http';
@@ -43,6 +43,7 @@ import { createCodexRunner, type CodexRunner } from './llm/codexRunner';
 import { detectAuth, runOauthLogin } from './llm/gptAuth';
 import { interpretIntentLlm } from './llm/llmIntent';
 import { planLayoutLlm } from './llm/llmPlanner';
+import { refreshSynthesisLlm } from './llm/llmSynthesis';
 import { interpretEditLlm } from './llm/llmEditor';
 import { openOriginalWindow, isSafeHttpUrl } from './originalViewer';
 import { createUpdater, type UpdaterHandle } from './updater';
@@ -84,6 +85,12 @@ const GenerateRequestSchema = z.object({
           })
         )
         .max(30),
+      density: z.enum(['compact', 'comfortable'])
+    })
+    .nullable(),
+  refillShape: z
+    .object({
+      layoutTemplate: z.array(RecipeLayoutSlotSchema).max(60),
       density: z.enum(['compact', 'comfortable'])
     })
     .nullable()
@@ -194,6 +201,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
     if (!parsedReq.success) return fail('요청 형식이 올바르지 않아요.');
     const req: GenerateRequest = parsedReq.data;
     try {
+      const t0 = Date.now();
       const { runner } = await llm();
       const prefSummary = await prefs.summarizeForPlanner();
 
@@ -226,10 +234,21 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
             : undefined
       };
 
+      const tInterpreted = Date.now();
       progress({ sessionId: req.sessionId, phase: 'gathering' });
       const gathered = await gatherSources(interpretation, ADAPTERS, ctx);
+      const tGathered = Date.now();
 
       progress({ sessionId: req.sessionId, phase: 'planning' });
+      // 재생성 with a page on screen: its own shape is the template — refill
+      // it instead of re-planning the layout (a recipe run still re-plans).
+      const refill =
+        req.rawInput === null &&
+        !req.recipeContext &&
+        req.refillShape !== null &&
+        req.refillShape.layoutTemplate.length > 0
+          ? req.refillShape
+          : null;
       const planReq: PlanRequest = {
         interpretation,
         items: gathered.items,
@@ -243,17 +262,44 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
               layoutTemplate: req.recipeContext.layoutTemplate,
               density: req.recipeContext.density
             }
-          : undefined
+          : refill
+            ? {
+                name: '현재 페이지',
+                layoutTemplate: refill.layoutTemplate,
+                density: refill.density
+              }
+            : undefined
       };
-      let planResult = runner.ready ? await planLayoutLlm(runner, planReq) : null;
       const issues: string[] = [];
-      if (!planResult) {
+      let planResult: PlanResult;
+      if (refill) {
+        // The skeleton is filled offline; the one model call only rewrites the
+        // synthesis text for the fresh items (heuristic text stands on failure).
+        planResult = heuristicPlan(planReq);
         if (runner.ready) {
+          const refreshed = await refreshSynthesisLlm(
+            runner,
+            planResult.plan,
+            gathered.items,
+            interpretation.goal
+          );
+          if (refreshed) planResult = { ...planResult, plan: refreshed };
+        }
+      } else {
+        const llmResult = runner.ready ? await planLayoutLlm(runner, planReq) : null;
+        if (!llmResult && runner.ready) {
           issues.push('Codex 플래너를 사용할 수 없어 오프라인 구성으로 만들었어요.');
         }
-        planResult = heuristicPlan(planReq);
+        planResult = llmResult ?? heuristicPlan(planReq);
       }
       issues.push(...planResult.issues);
+
+      const secs = (from: number, to: number): string => ((to - from) / 1000).toFixed(1);
+      console.log(
+        `[generate] mode=${refill ? 'refill' : req.recipeContext ? 'recipe' : 'full'} ` +
+          `interpret=${secs(t0, tInterpreted)}s gather=${secs(tInterpreted, tGathered)}s ` +
+          `plan=${secs(tGathered, Date.now())}s total=${secs(t0, Date.now())}s`
+      );
 
       progress({ sessionId: req.sessionId, phase: 'done' });
       return {

@@ -155,4 +155,43 @@ describe('createCodexRunner', () => {
 
     expect(spawn).not.toHaveBeenCalled();
   });
+
+  /** Just enough child for spawnCodex: pipes to drain, a close event, a stdin sink. */
+  function fakeChild(): ReturnType<typeof spawn> {
+    return {
+      stdout: { resume: vi.fn() },
+      stderr: { resume: vi.fn() },
+      stdin: { on: vi.fn(), end: vi.fn() },
+      kill: vi.fn(),
+      on(event: string, cb: (code?: number) => void) {
+        if (event === 'close') setImmediate(() => cb(0));
+        return this;
+      }
+    } as unknown as ReturnType<typeof spawn>;
+  }
+
+  it('disables the user MCP servers and applies the requested reasoning effort', async () => {
+    vi.mocked(spawn).mockReturnValue(fakeChild());
+    const runner = createCodexRunner({ ready: true });
+
+    await runner.run(z.object({ a: z.string() }), 'prompt', { effort: 'low' });
+
+    const [cmd, args] = vi.mocked(spawn).mock.calls.at(-1)!;
+    expect(cmd).toBe('codex');
+    const joined = args.join(' ');
+    expect(joined).toContain('-c mcp_servers={}');
+    expect(joined).toContain('-c model_reasoning_effort="low"');
+  });
+
+  it('omits the effort override when none is requested', async () => {
+    vi.mocked(spawn).mockReturnValue(fakeChild());
+    const runner = createCodexRunner({ ready: true });
+
+    await runner.run(z.object({ a: z.string() }), 'prompt');
+
+    const [, args] = vi.mocked(spawn).mock.calls.at(-1)!;
+    const joined = args.join(' ');
+    expect(joined).toContain('-c mcp_servers={}');
+    expect(joined).not.toContain('model_reasoning_effort');
+  });
 });

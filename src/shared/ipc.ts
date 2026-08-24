@@ -52,6 +52,12 @@ export interface GenerateRequest {
   /** Items referenced by preserved blocks (kept across regeneration). */
   keepItems: SourceItem[];
   recipeContext: RecipeContext | null;
+  /**
+   * 재생성 with an existing page: its current shape. Main refills these slots
+   * with fresh content and rewrites only the synthesis text, instead of
+   * re-planning the whole layout from scratch.
+   */
+  refillShape: { layoutTemplate: RecipeLayoutSlot[]; density: 'compact' | 'comfortable' } | null;
 }
 
 /** A Recipe's saved shape — guides composition, never freezes content. */

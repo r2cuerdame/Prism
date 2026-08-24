@@ -342,7 +342,20 @@ class AppStore {
             layoutTemplate: recipe.layoutTemplate,
             density: recipe.compositionPreferences.density
           }
-        : null
+        : null,
+      // 재생성 of an existing page keeps its skeleton: send the current shape
+      // so main refills it instead of re-planning the layout from scratch.
+      refillShape:
+        rawInput === null && !recipe && state.plan && state.plan.blocks.length > 0
+          ? {
+              layoutTemplate: state.plan.blocks.map(toLayoutSlot),
+              density:
+                state.plan.blocks.find((b) => b.componentType === 'article_list')?.props
+                  .density === 'compact'
+                  ? 'compact'
+                  : 'comfortable'
+            }
+          : null
     });
     this.patchEntry(sid, { progress: null, reports: res.reports, issues: res.issues });
     if (!res.ok || !res.plan) {

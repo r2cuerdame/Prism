@@ -112,7 +112,8 @@ export async function interpretEditLlm(
 ): Promise<{ commands: SessionCommand[]; explanation: string } | null> {
   try {
     const prompt = `${SYSTEM}\n\n--- INPUT ---\nPage digest: ${JSON.stringify(digest)}\n\nEdit request: ${utterance}`;
-    const out = await runner.run(LlmEditSchema, prompt, { timeoutMs: 90_000 });
+    // Command translation over a small digest — low effort keeps edits snappy.
+    const out = await runner.run(LlmEditSchema, prompt, { timeoutMs: 90_000, effort: 'low' });
     if (!out) return null;
     const commands = out.commands
       .map((c) => mapCommand(c, digest))

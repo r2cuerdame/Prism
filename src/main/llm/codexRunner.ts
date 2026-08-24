@@ -10,11 +10,22 @@ import { z } from 'zod';
  * app never holds an API key: `codex exec` runs the ChatGPT-account login
  * non-interactively and writes its final message to a file we read back.
  */
+/**
+ * Reasoning effort for one call. The user's CLI config may pin an interactive
+ * default like "xhigh" (measured: a page plan takes ~101s there vs ~50s on
+ * "low"), so app calls state how much thinking they actually need.
+ */
+export type CodexEffort = 'none' | 'low' | 'medium' | 'high';
+
 export interface CodexRunner {
   /** False when the codex CLI is missing or the user is signed out. */
   readonly ready: boolean;
   /** Structured call. Resolves null on any failure — callers fall back to the offline planner. */
-  run<T>(schema: z.ZodType<T>, prompt: string, opts?: { timeoutMs?: number }): Promise<T | null>;
+  run<T>(
+    schema: z.ZodType<T>,
+    prompt: string,
+    opts?: { timeoutMs?: number; effort?: CodexEffort }
+  ): Promise<T | null>;
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -164,7 +175,7 @@ export function createCodexRunner(opts: { ready: boolean; model?: string }): Cod
     async run<T>(
       schema: z.ZodType<T>,
       prompt: string,
-      runOpts?: { timeoutMs?: number }
+      runOpts?: { timeoutMs?: number; effort?: CodexEffort }
     ): Promise<T | null> {
       if (!opts.ready) return null;
       const dir = tmpdir();
@@ -185,6 +196,11 @@ export function createCodexRunner(opts: { ready: boolean; model?: string }): Cod
           'read-only',
           '--color',
           'never',
+          // These calls never use agent tools, and the user's config may list
+          // heavyweight MCP servers that would otherwise boot on every spawn.
+          '-c',
+          'mcp_servers={}',
+          ...(runOpts?.effort ? ['-c', `model_reasoning_effort="${runOpts.effort}"`] : []),
           '--output-schema',
           quote(schemaFile),
           '-o',

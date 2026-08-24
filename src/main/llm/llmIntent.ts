@@ -48,7 +48,8 @@ export async function interpretIntentLlm(
       .join('\n\n');
 
     const prompt = `${SYSTEM}\n\n--- INPUT ---\n${context ? context + '\n\n' : ''}User input: ${rawInput}`;
-    const out = await runner.run(LlmIntentSchema, prompt, { timeoutMs: 90_000 });
+    // Intent mapping is classification, not composition — low effort suffices.
+    const out = await runner.run(LlmIntentSchema, prompt, { timeoutMs: 90_000, effort: 'low' });
     if (!out) return null;
 
     const mapped = InterpretedIntentSchema.safeParse({

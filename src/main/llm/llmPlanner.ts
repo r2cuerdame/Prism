@@ -151,9 +151,10 @@ export async function planLayoutLlm(
       learnedPreferences: req.prefSummary || undefined,
       recipeShape: req.recipeShape
     };
-    // Composing a whole page is the heavy call — give it room.
+    // Composing a whole page is the heavy call — give it room. Effort "low"
+    // measured ~50s with a full valid page vs ~101s inheriting "xhigh".
     const prompt = `${SYSTEM}\n\n--- INPUT ---\n${JSON.stringify(context)}`;
-    const out = await runner.run(LlmPlanSchema, prompt, { timeoutMs: 180_000 });
+    const out = await runner.run(LlmPlanSchema, prompt, { timeoutMs: 180_000, effort: 'low' });
     if (!out || out.blocks.length === 0) return null;
 
     const rawPlan = {
