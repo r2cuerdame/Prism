@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -14,7 +14,8 @@ describe('settingsStore', () => {
     expect(await store.get()).toEqual({
       plannerModel: '',
       autoUpdate: true,
-      locale: 'ko'
+      locale: 'ko',
+      llmProvider: 'agy'
     });
   });
 

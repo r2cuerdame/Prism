@@ -16,7 +16,7 @@ const PROD_CSP =
 function cspPlugin(): Plugin {
   let isDev = false;
   return {
-    name: 'gptbrowser-csp',
+    name: 'prism-csp',
     config(_config, env) {
       isDev = env.command === 'serve' || env.mode === 'development';
     },

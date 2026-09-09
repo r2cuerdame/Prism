@@ -86,7 +86,7 @@ function sourceRuns(items: SourceItem[]): number {
 }
 
 /** Minimum adjacent same-source pairs any ordering can achieve for these counts. */
-function minimumAdjacentRepeats(items: SourceItem[]): number {
+export function minimumAdjacentRepeats(items: SourceItem[]): number {
   const counts = new Map<string, number>();
   for (const it of items) counts.set(it.sourceName, (counts.get(it.sourceName) ?? 0) + 1);
   const maxCount = Math.max(0, ...counts.values());

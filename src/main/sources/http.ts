@@ -4,7 +4,7 @@ const DEFAULT_TIMEOUT_MS = 8000;
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 200;
 const MAX_BYTES = 4 * 1024 * 1024;
-const USER_AGENT = 'GPTBrowser/0.1 (+https://github.com/r2cuerdame/GPTBrowser)';
+const USER_AGENT = 'Prism/0.1 (+https://github.com/r2cuerdame/Prism)';
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
 
 interface CacheEntry {

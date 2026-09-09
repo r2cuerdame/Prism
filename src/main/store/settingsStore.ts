@@ -5,6 +5,7 @@ import { JsonStore } from './jsonStore';
 export const SettingsSchema = z.object({
   /** Empty means "whatever Codex is configured to use". */
   plannerModel: z.string().default(''),
+  llmProvider: z.enum(['agy', 'codex']).default('agy'),
   autoUpdate: z.boolean().default(true),
   locale: z.enum(['ko', 'en']).default('ko')
 });
