@@ -148,13 +148,19 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   const pool = available.filter((it) => keptIds.has(it.id));
   const distinctSources = new Set(pool.map((it) => it.sourceName));
 
+  const profile = req.profile;
+  const isComponentExcluded = (compType: string): boolean =>
+    profile?.negative.components.some((c) => c.hard && c.value === compType) ?? false;
+  const isKindExcluded = (kind: SourceItemKind): boolean =>
+    profile?.negative.kinds.some((k) => k.hard && k.value === kind) ?? false;
+
   // --- synthesis opener ---------------------------------------------------
   // Citing an item does not consume it: a bullet about an article and the
   // article's own card are different things, so the body still shows it.
   const crossBlocks: ComponentBlock[] = [];
   const openerClusters = clusterByTopic(pool);
 
-  if (pool.length >= 2 && distinctSources.size >= 2) {
+  if (!isComponentExcluded('synthesis_brief') && pool.length >= 2 && distinctSources.size >= 2) {
     const synth = buildSynthesisPoints(pool, openerClusters);
     if (synth.points.length > 0 && synth.citedItems.length >= 2) {
       const brief = makeBlock(
@@ -173,8 +179,10 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   // small so the body stays topic-driven rather than kind-driven.
   const ANCHOR_VIDEO_CAP = 6;
   const anchorUsed = new Set<string>();
+  const skipVideoAnchor =
+    mix.video === 'less' || isComponentExcluded('media_strip') || isKindExcluded('video');
   const anchorVideos =
-    mix.video === 'less' ? [] : interleaveBySource(byKind.video).slice(0, ANCHOR_VIDEO_CAP);
+    skipVideoAnchor ? [] : interleaveBySource(byKind.video).slice(0, ANCHOR_VIDEO_CAP);
   for (const v of anchorVideos) anchorUsed.add(v.id);
 
   // Everything the anchor did not take is composed BY TOPIC, across kinds and

@@ -106,4 +106,27 @@ describe('preferenceStore', () => {
     const store = createPreferenceStore(await tmpDir());
     expect(await store.summarizeForPlanner()).toBe('');
   });
+
+  it('getProfile returns structured InterestProfile', async () => {
+    const store = createPreferenceStore(await tmpDir());
+    await store.record([
+      makeSignal({
+        kind: 'reject',
+        target: { type: 'source', value: 'Reddit' },
+        explicit: true,
+        polarity: 'negative'
+      }),
+      makeSignal({
+        kind: 'dock',
+        target: { type: 'source', value: 'Hacker News' },
+        explicit: true,
+        polarity: 'positive'
+      })
+    ]);
+    const profile = await store.getProfile();
+    expect(profile.signalCount).toBe(2);
+    expect(profile.negative.sources.some((s) => s.value === 'Reddit' && s.hard)).toBe(true);
+    expect(profile.positive.sources.some((s) => s.value === 'Hacker News')).toBe(true);
+  });
 });
+

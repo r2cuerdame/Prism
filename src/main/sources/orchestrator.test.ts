@@ -9,6 +9,7 @@ import type {
   SourceClass,
   SourceRequest
 } from './types';
+import { emptyProfile, type InterestProfile } from '@shared/preference/interestProfile';
 import { gatherSources } from './orchestrator';
 
 function makeIntent(overrides: Partial<InterpretedIntent> = {}): InterpretedIntent {
@@ -239,5 +240,181 @@ describe('gatherSources merge', () => {
     const a = makeAdapter('a', ['news'], { itemCount: 10 });
     const res = await gatherSources(makeIntent(), [a], ctx, { totalLimit: 3 });
     expect(res.reports[0]).toMatchObject({ adapterId: 'a', ok: true, count: 3 });
+  });
+});
+
+describe('gatherSources preference profile integration', () => {
+  it('excludes hard-negative source when >= 2 candidates remain', async () => {
+    const a = makeAdapter('a', ['news'], { score: 0.9, itemCount: 3 });
+    const b = makeAdapter('b', ['news'], { score: 0.8, itemCount: 3 });
+    const c = makeAdapter('c', ['community'], { score: 0.7, itemCount: 3 });
+
+    const profile: InterestProfile = {
+      ...emptyProfile(),
+      negative: {
+        ...emptyProfile().negative,
+        sources: [
+          {
+            type: 'source',
+            value: 'c',
+            score: -1.0,
+            explicit: true,
+            hard: true,
+            terms: [],
+            signalIds: ['s1'],
+            interpretations: ['c 제거']
+          }
+        ]
+      }
+    };
+
+    const res = await gatherSources(makeIntent(), [a, b, c], ctx, { profile });
+    const adapterIds = new Set(res.items.map((it) => it.adapterId));
+    expect(adapterIds.has('a')).toBe(true);
+    expect(adapterIds.has('b')).toBe(true);
+    expect(adapterIds.has('c')).toBe(false);
+  });
+
+  it('preserves diversity floor (>=2 candidates) even if a candidate is hard-negative', async () => {
+    const a = makeAdapter('a', ['news'], { score: 0.9, itemCount: 3 });
+    const b = makeAdapter('b', ['news'], { score: 0.8, itemCount: 3 });
+
+    const profile: InterestProfile = {
+      ...emptyProfile(),
+      negative: {
+        ...emptyProfile().negative,
+        sources: [
+          {
+            type: 'source',
+            value: 'b',
+            score: -1.0,
+            explicit: true,
+            hard: true,
+            terms: [],
+            signalIds: ['s1'],
+            interpretations: ['b 제거']
+          }
+        ]
+      }
+    };
+
+    // Only 2 candidates total; dropping b would leave 1, violating diversity floor
+    const res = await gatherSources(makeIntent(), [a, b], ctx, { profile });
+    const adapterIds = new Set(res.items.map((it) => it.adapterId));
+    expect(adapterIds.has('a')).toBe(true);
+    expect(adapterIds.has('b')).toBe(true);
+  });
+
+  it('filters out items matching hard rejected URLs or terms', async () => {
+    const badUrl = 'https://example.com/a/bad-item';
+    const a = makeAdapter('a', ['news'], {
+      score: 0.9,
+      itemCount: 3,
+      urls: ['https://example.com/a/1', badUrl, 'https://example.com/a/3']
+    });
+    const b = makeAdapter('b', ['news'], { score: 0.8, itemCount: 2 });
+
+    const profile: InterestProfile = {
+      ...emptyProfile(),
+      negative: {
+        ...emptyProfile().negative,
+        items: [
+          {
+            type: 'item',
+            value: badUrl,
+            score: -1.0,
+            explicit: true,
+            hard: true,
+            terms: ['bad-item'],
+            signalIds: ['s1'],
+            interpretations: ['거부된 항목']
+          }
+        ]
+      }
+    };
+
+    const res = await gatherSources(makeIntent(), [a, b], ctx, { profile });
+    expect(res.items.some((it) => it.originalUrl === badUrl)).toBe(false);
+  });
+
+  it('preserves item diversity floor (>= 2 sources) if all items of an adapter are rejected', async () => {
+    const a = makeAdapter('a', ['news'], {
+      score: 0.9,
+      itemCount: 2,
+      urls: ['https://example.com/a/1', 'https://example.com/a/2']
+    });
+    const b = makeAdapter('b', ['news'], {
+      score: 0.8,
+      itemCount: 2,
+      urls: ['https://example.com/b/1', 'https://example.com/b/2']
+    });
+
+    // Hard reject all items of b
+    const profile: InterestProfile = {
+      ...emptyProfile(),
+      negative: {
+        ...emptyProfile().negative,
+        items: [
+          {
+            type: 'item',
+            value: 'https://example.com/b/1',
+            score: -1.0,
+            explicit: true,
+            hard: true,
+            terms: [],
+            signalIds: ['s1'],
+            interpretations: ['거부']
+          },
+          {
+            type: 'item',
+            value: 'https://example.com/b/2',
+            score: -1.0,
+            explicit: true,
+            hard: true,
+            terms: [],
+            signalIds: ['s2'],
+            interpretations: ['거부']
+          }
+        ]
+      }
+    };
+
+    const res = await gatherSources(makeIntent(), [a, b], ctx, { profile });
+    // Diversity floor should ensure b still has at least 1 item
+    const adapterIds = new Set(res.items.map((it) => it.adapterId));
+    expect(adapterIds.has('a')).toBe(true);
+    expect(adapterIds.has('b')).toBe(true);
+  });
+
+  it('ranks items by preference score before round-robin merge', async () => {
+    const a = makeAdapter('a', ['news'], {
+      score: 0.9,
+      itemCount: 2,
+      urls: ['https://example.com/a/first', 'https://example.com/a/second']
+    });
+
+    // Make second item match a positive topic
+    const profile: InterestProfile = {
+      ...emptyProfile(),
+      positive: {
+        ...emptyProfile().positive,
+        topics: [
+          {
+            type: 'topic',
+            value: 'item 1', // title of second item (index 1) is 'item 1'
+            score: 2.0,
+            explicit: true,
+            hard: false,
+            terms: ['item', '1'],
+            signalIds: ['s1'],
+            interpretations: ['item 1 선호']
+          }
+        ]
+      }
+    };
+
+    const res = await gatherSources(makeIntent(), [a], ctx, { profile, totalLimit: 1 });
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0].originalUrl).toBe('https://example.com/a/second');
   });
 });

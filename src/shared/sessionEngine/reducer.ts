@@ -88,6 +88,31 @@ export function applySessionCommand(state: SessionState, cmd: SessionCommand, at
       };
     }
 
+    case 'remove_item': {
+      if (!state.plan) return state;
+      let changed = false;
+      const nextBlocks: ComponentBlock[] = [];
+      for (const block of state.plan.blocks) {
+        if (block.sourceItemRefs.includes(cmd.itemId)) {
+          changed = true;
+          const nextRefs = block.sourceItemRefs.filter((id) => id !== cmd.itemId);
+          const entry = getCatalogEntry(block.componentType);
+          if (entry && nextRefs.length < entry.minItems && entry.fallback === 'hide') {
+            continue;
+          }
+          nextBlocks.push({ ...block, sourceItemRefs: nextRefs });
+        } else {
+          nextBlocks.push(block);
+        }
+      }
+      if (!changed) return state;
+      return {
+        ...state,
+        plan: { ...state.plan, blocks: nextBlocks },
+        updatedAt: ts
+      };
+    }
+
     case 'dock_block': {
       const idx = findBlockIndex(state.plan, cmd.blockId);
       if (idx < 0 || !state.plan) return state;

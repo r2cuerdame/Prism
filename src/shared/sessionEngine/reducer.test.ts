@@ -567,3 +567,28 @@ describe('play_item', () => {
     expect(applySessionCommand(noPlan, { type: 'play_item', itemId: 'v1' }, T1)).toBe(noPlan);
   });
 });
+
+describe('remove_item', () => {
+  it('removes item ref from all blocks containing it and can be undone', () => {
+    const b1 = makeBlock('b1', { sourceItemRefs: ['i1', 'i2', 'i3'] });
+    const b2 = makeBlock('b2', { sourceItemRefs: ['i2', 'i4'] });
+    const s: SessionState = {
+      ...baseState([b1, b2]),
+      items: { i1: makeItem('i1'), i2: makeItem('i2'), i3: makeItem('i3'), i4: makeItem('i4') }
+    };
+    const next = applySessionCommand(s, { type: 'remove_item', itemId: 'i2' }, T1);
+    expect(next.plan?.blocks[0].sourceItemRefs).toEqual(['i1', 'i3']);
+    expect(next.plan?.blocks[1].sourceItemRefs).toEqual(['i4']);
+  });
+
+  it('drops a block whose item count falls below minimum when fallback is hide', () => {
+    const b = makeBlock('b1', { componentType: 'topic_cluster', sourceItemRefs: ['i1', 'i2'] });
+    const s: SessionState = {
+      ...baseState([b]),
+      items: { i1: makeItem('i1'), i2: makeItem('i2') }
+    };
+    const next = applySessionCommand(s, { type: 'remove_item', itemId: 'i1' }, T1);
+    // topic_cluster has minItems 2, fallback hide -> block is removed
+    expect(next.plan?.blocks).toHaveLength(0);
+  });
+});

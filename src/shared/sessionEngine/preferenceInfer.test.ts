@@ -205,3 +205,27 @@ describe('inferPreferenceSignals: other commands', () => {
     for (const id of ids) expect(id.startsWith('sig_')).toBe(true);
   });
 });
+
+describe('inferPreferenceSignals: remove_item', () => {
+  it('emits an explicit negative item reject and a weak implicit source remove', () => {
+    const itm = makeItem('i1', { title: 'AI 칩 경쟁 심화', sourceName: 'Hacker News', originalUrl: 'https://news.ycombinator.com/item?id=123' });
+    const s = stateWith([makeBlock('b1', { sourceItemRefs: ['i1'] })], [itm]);
+    const signals = inferPreferenceSignals(s, { type: 'remove_item', itemId: 'i1' }, AT);
+    expect(signals).toHaveLength(2);
+
+    const [itemSig, sourceSig] = signals;
+    expect(itemSig.kind).toBe('reject');
+    expect(itemSig.target).toEqual({ type: 'item', value: 'https://news.ycombinator.com/item?id=123' });
+    expect(itemSig.explicit).toBe(true);
+    expect(itemSig.confidence).toBe(1.0);
+    expect(itemSig.polarity).toBe('negative');
+    expect(itemSig.origin).toBe('context_menu');
+    expect(itemSig.terms).toBeDefined();
+
+    expect(sourceSig.kind).toBe('remove');
+    expect(sourceSig.target).toEqual({ type: 'source', value: 'Hacker News' });
+    expect(sourceSig.explicit).toBe(false);
+    expect(sourceSig.confidence).toBe(0.3);
+    expect(sourceSig.polarity).toBe('negative');
+  });
+});

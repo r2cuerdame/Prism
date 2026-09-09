@@ -77,9 +77,11 @@ function scopeApplies(signal: PreferenceSignal, opts: ProfileOptions): boolean {
   const scope: PreferenceScope = signal.scope;
   if (scope === 'global') return true;
   if (scope === 'one_time') return false;
-  if (scope === 'session') return opts.sessionId !== undefined && signal.context.sessionId === opts.sessionId;
+  if (scope === 'session') {
+    return opts.sessionId === undefined || signal.context.sessionId === opts.sessionId;
+  }
   if (scope === 'recipe') {
-    return opts.recipeId !== undefined && signal.context.recipeId === opts.recipeId;
+    return opts.recipeId === undefined || signal.context.recipeId === opts.recipeId;
   }
   return false;
 }
@@ -228,7 +230,7 @@ function describe(entry: ProfileEntry): string {
     case 'source':
       return `${entry.value} 출처`;
     case 'kind':
-      return `${KIND_LABEL[entry.value] ?? entry.value} 형식`;
+      return `${entry.value}(${KIND_LABEL[entry.value] ?? entry.value}) 형식`;
     case 'component':
       return `${entry.value} 컴포넌트`;
     case 'topic':
@@ -256,7 +258,7 @@ export function summarizeProfile(profile: InterestProfile, maxLines = 12): strin
   ].filter((e) => e.hard);
   for (const e of hard) {
     if (lines.length >= maxLines) break;
-    lines.push(`- [반드시 제외] ${describe(e)} — 사용자가 직접 거부했어요`);
+    lines.push(`- [반드시 제외] ${describe(e)} 선호 낮음 — 사용자가 직접 거부했어요`);
   }
   const soft = [
     ...profile.negative.sources,
