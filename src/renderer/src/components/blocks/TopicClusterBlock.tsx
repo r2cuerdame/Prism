@@ -65,7 +65,14 @@ export default function TopicClusterBlock(props: BlockRenderProps): ReactElement
           const post = getPostPayload(item);
           const thumb = item.id === thumbItemId ? item.media?.thumbnailUrl : undefined;
           return (
-            <div key={item.id} className="gv-tc-row">
+            <div
+              key={item.id}
+              className="gv-tc-row"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                dispatch({ type: 'remove_item', itemId: item.id });
+              }}
+            >
                 {thumb ? (
                   <img
                     className="gv-tc-thumb"
@@ -118,6 +125,18 @@ export default function TopicClusterBlock(props: BlockRenderProps): ReactElement
                       }}
                     >
                       원본
+                    </button>
+                    <button
+                      type="button"
+                      className="gv-tc-remove"
+                      title="이 항목 거부 (다시 보지 않기)"
+                      aria-label="이 항목 거부"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        dispatch({ type: 'remove_item', itemId: item.id });
+                      }}
+                    >
+                      ✕
                     </button>
                   </div>
                 </div>

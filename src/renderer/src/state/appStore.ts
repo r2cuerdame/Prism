@@ -151,13 +151,23 @@ class AppStore {
       this.patchEntry(p.sessionId, { progress: p.phase === 'done' ? null : p.phase });
     });
     window.gptb.onUpdaterStatus((s) => this.set({ updater: s }));
-    const [settings, recipes, archive] = await Promise.all([
+    const [settings, recipes, archive, prefSignals] = await Promise.all([
       window.gptb.settingsGet(),
       window.gptb.recipesList(),
-      window.gptb.sessionsList()
+      window.gptb.sessionsList(),
+      window.gptb.prefsList()
     ]);
-    this.set({ settings, recipes, archive });
+    this.set({ settings, recipes, archive, prefSignals });
     if (this.state.order.length === 0) this.newSession();
+  }
+
+  rejectItem(itemId: string): void {
+    const act = this.active();
+    if (!act) return;
+    const item = act.entry.history.present.items[itemId];
+    const title = item ? `"${item.title.slice(0, 20)}"` : '항목';
+    this.dispatch({ type: 'remove_item', itemId });
+    this.toast(`${title}을(를) 거부했어요. 선호에 반영됩니다. (Ctrl+Z로 실행 취소)`);
   }
 
   // ── Sessions ─────────────────────────────────────────────────────────
