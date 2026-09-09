@@ -31,16 +31,21 @@ export function installPermissionHandlers(): void {
  * Original is an escape hatch and trust mechanism, not the primary canvas
  * (GOAL.md § Original). Isolated session partition, zero preload powers.
  */
-export function openOriginalWindow(url: string, parent?: BrowserWindow): void {
-  if (!isSafeHttpUrl(url)) return;
+export function openOriginalWindow(
+  url: string,
+  parent?: BrowserWindow,
+  options?: { partition?: string; title?: string }
+): BrowserWindow | undefined {
+  if (!isSafeHttpUrl(url)) return undefined;
+  const partition = options?.partition || 'persist:original-viewer';
   const win = new BrowserWindow({
     width: 1100,
     height: 800,
-    title: '원본 보기 — GPTBrowser',
+    title: options?.title || '원본 보기 — Prism',
     autoHideMenuBar: true,
     parent: parent ?? undefined,
     webPreferences: {
-      partition: 'persist:original-viewer',
+      partition,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
@@ -54,4 +59,5 @@ export function openOriginalWindow(url: string, parent?: BrowserWindow): void {
     if (!isSafeHttpUrl(target)) event.preventDefault();
   });
   void win.loadURL(url);
+  return win;
 }

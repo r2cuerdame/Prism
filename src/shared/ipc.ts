@@ -29,9 +29,17 @@ export const IPC = {
   updaterInstall: 'gptb:updater-install',
   openOriginal: 'gptb:open-original',
   openExternal: 'gptb:open-external',
+  // SourceRuntime and Auth Rail IPC
+  sourceAction: 'prism:source-action',
+  sourceProject: 'prism:source-project',
+  authRailOpen: 'prism:auth-rail-open',
+  authRailClose: 'prism:auth-rail-close',
+  authRailComplete: 'prism:auth-rail-complete',
+  authRailLaunchSurface: 'prism:auth-rail-launch-surface',
   // main -> renderer events
   evGenerateProgress: 'gptb:ev-generate-progress',
-  evUpdaterStatus: 'gptb:ev-updater-status'
+  evUpdaterStatus: 'gptb:ev-updater-status',
+  evAuthRailState: 'prism:ev-auth-rail-state'
 } as const;
 
 export interface AdapterReport {
@@ -130,13 +138,61 @@ export interface InterpretEditResponse {
   error?: string;
 }
 
-/** How the app is authenticated for planning. 'oauth' = a Codex sign-in. */
-export type AuthMethod = 'api-key' | 'env-key' | 'oauth' | 'none';
+/** How the app is authenticated for planning. 'agy' = Google Antigravity (Gemini), 'oauth' = a Codex sign-in. */
+export type AuthMethod = 'agy' | 'api-key' | 'env-key' | 'oauth' | 'none';
+
+export type SourceAuthStatus =
+  | 'idle'
+  | 'required'
+  | 'authenticating'
+  | 'authenticated'
+  | 'dismissed'
+  | 'failed';
+
+export interface SafeAuthRailState {
+  active: boolean;
+  sourceId: string;
+  origin: string;
+  partitionId: string;
+  loginUrl: string;
+  title: string;
+  status: SourceAuthStatus;
+  message?: string;
+}
+
+export interface AuthRailOpenRequest {
+  sourceId: string;
+  origin?: string;
+  loginUrl?: string;
+  title?: string;
+}
+
+export interface AuthRailResult {
+  ok: boolean;
+  sourceId: string;
+  status: SourceAuthStatus;
+  error?: string;
+}
+
+export interface SourceActionRpcRequest {
+  sourceId: string;
+  actionId: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface SourceActionRpcResult {
+  ok: boolean;
+  sourceId: string;
+  actionId: string;
+  data?: unknown;
+  error?: string;
+}
 
 export interface SettingsView {
   /** Active credential source. */
   authMethod: AuthMethod;
   authDetail: string;
+  llmProvider: 'agy' | 'codex';
   plannerModel: string;
   autoUpdate: boolean;
   locale: 'ko' | 'en';
@@ -152,6 +208,7 @@ export interface AuthLoginResult {
 }
 
 export interface SettingsPatch {
+  llmProvider?: 'agy' | 'codex';
   plannerModel?: string;
   autoUpdate?: boolean;
   locale?: 'ko' | 'en';
@@ -187,7 +244,7 @@ export interface SessionArchiveEntry {
   snapshotCount: number;
 }
 
-/** The typed bridge exposed by preload as `window.gptb`. */
+/** The typed bridge exposed by preload as `window.prism` (and alias `window.gptb`). */
 export interface GptbApi {
   generate(req: GenerateRequest): Promise<GenerateResponse>;
   regenerateBlock(req: RegenerateBlockRequest): Promise<RegenerateBlockResponse>;
@@ -211,6 +268,17 @@ export interface GptbApi {
   updaterInstall(): Promise<void>;
   openOriginal(url: string): Promise<void>;
   openExternal(url: string): Promise<void>;
+  // SourceRuntime & Auth Rail IPC
+  sourceAction(req: SourceActionRpcRequest): Promise<SourceActionRpcResult>;
+  sourceProject(sourceId: string): Promise<unknown>;
+  authRailOpen(req: AuthRailOpenRequest): Promise<AuthRailResult>;
+  authRailClose(sourceId: string): Promise<void>;
+  authRailComplete(sourceId: string): Promise<AuthRailResult>;
+  authRailLaunchSurface(sourceId: string): Promise<void>;
+  onAuthRailState(cb: (state: SafeAuthRailState | null) => void): () => void;
+  // Events
   onGenerateProgress(cb: (p: GenerateProgress) => void): () => void;
   onUpdaterStatus(cb: (s: UpdaterStatus) => void): () => void;
 }
+
+export type PrismApi = GptbApi;

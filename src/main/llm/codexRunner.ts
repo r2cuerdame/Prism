@@ -6,27 +6,20 @@ import { join } from 'node:path';
 import { z } from 'zod';
 
 /**
- * The planner talks to the model through the user's Codex CLI session, so the
- * app never holds an API key: `codex exec` runs the ChatGPT-account login
- * non-interactively and writes its final message to a file we read back.
+ * Optional legacy provider. The planner talks to the model through the
+ * user's Codex CLI session, so the app never holds an API key: `codex exec`
+ * runs the ChatGPT-account login non-interactively and writes its final
+ * message to a file we read back. AGY (agyRunner) is the default.
  */
 /**
  * Reasoning effort for one call. The user's CLI config may pin an interactive
  * default like "xhigh" (measured: a page plan takes ~101s there vs ~50s on
  * "low"), so app calls state how much thinking they actually need.
  */
-export type CodexEffort = 'none' | 'low' | 'medium' | 'high';
+import type { LlmEffort, LlmRunner } from './llmRunner';
 
-export interface CodexRunner {
-  /** False when the codex CLI is missing or the user is signed out. */
-  readonly ready: boolean;
-  /** Structured call. Resolves null on any failure — callers fall back to the offline planner. */
-  run<T>(
-    schema: z.ZodType<T>,
-    prompt: string,
-    opts?: { timeoutMs?: number; effort?: CodexEffort }
-  ): Promise<T | null>;
-}
+export type CodexEffort = LlmEffort;
+export type CodexRunner = LlmRunner;
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
@@ -172,6 +165,8 @@ export function createCodexRunner(opts: { ready: boolean; model?: string }): Cod
   const model = opts.model?.trim();
   return {
     ready: opts.ready,
+    provider: 'codex',
+    model: model ?? '',
     async run<T>(
       schema: z.ZodType<T>,
       prompt: string,
@@ -180,8 +175,8 @@ export function createCodexRunner(opts: { ready: boolean; model?: string }): Cod
       if (!opts.ready) return null;
       const dir = tmpdir();
       const id = randomUUID();
-      const schemaFile = join(dir, `gptbrowser-schema-${id}.json`);
-      const answerFile = join(dir, `gptbrowser-answer-${id}.txt`);
+      const schemaFile = join(dir, `prism-schema-${id}.json`);
+      const answerFile = join(dir, `prism-answer-${id}.txt`);
       try {
         const base = z.toJSONSchema(schema) as Record<string, unknown>;
         // `$schema` is not part of the structured-output subset.

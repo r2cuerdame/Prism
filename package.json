@@ -1,14 +1,14 @@
 {
-  "name": "gptbrowser",
+  "name": "prism",
   "version": "0.1.0",
-  "description": "GPTBrowser — Generated Personal Territory Browser. Chrome renders websites. GPTBrowser renders user intent.",
+  "description": "Prism — Intent to One Page. Chrome renders websites. Prism renders user intent.",
   "main": "./out/main/index.js",
   "author": "r2cuerdame",
   "license": "MIT",
-  "homepage": "https://github.com/r2cuerdame/GPTBrowser",
+  "homepage": "https://github.com/r2cuerdame/Prism",
   "repository": {
     "type": "git",
-    "url": "https://github.com/r2cuerdame/GPTBrowser.git"
+    "url": "https://github.com/r2cuerdame/Prism.git"
   },
   "scripts": {
     "dev": "electron-vite dev",
@@ -33,6 +33,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",

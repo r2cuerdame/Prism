@@ -1,16 +1,16 @@
-# GPTBrowser: A New Browser Grammar for the LLM Era
+# Prism: A New Browser Grammar for the LLM Era
 
-> **GPTBrowser: Generated Personal Territory Browser.**
+> **Prism: Intent to One Page.**
 >
-> **Chrome renders websites. GPTBrowser renders user intent.**
+> **Chrome renders websites. Prism renders user intent.**
 
-GPTBrowser is an open-source experiment in redefining the browser for the LLM era. It is not “Chrome with AI,” an assistant sidebar, or an agent that clicks through existing websites on the user's behalf. It starts from a more fundamental question:
+Prism is an open-source experiment in redefining the browser for the LLM era. It is not “Chrome with AI,” an assistant sidebar, or an agent that clicks through existing websites on the user's behalf. It starts from a more fundamental question:
 
 > If browsers were invented after capable language models, would URLs, tabs, pages, bookmarks, and refresh still be the primary user interface?
 
-GPTBrowser proposes a different grammar:
+Prism proposes a different grammar:
 
-| Traditional browser | GPTBrowser |
+| Traditional browser | Prism |
 | --- | --- |
 | URL | Intent |
 | Tab | Session |
@@ -22,15 +22,15 @@ GPTBrowser proposes a different grammar:
 
 The project is intentionally narrow, opinionated, and experimental. Its first audience is people consuming content across the web: watching, reading, browsing, comparing, discovering, and relaxing. It does not aim to replace every browser workflow.
 
-## Generated Personal Territory
+## Why Prism
 
-The name **GPTBrowser** expands to **Generated Personal Territory Browser**. It describes the product model, not merely the model technology behind it:
+The name **Prism** describes the product model, not merely the model technology behind it. A prism takes one beam and spreads it across a spectrum. Prism takes one beam—the user's intent—and spreads it across the spectrum of sources: video, news, communities, products, reviews, music. The Generated View then recombines that spectrum into one page. The user's page is a personal, generated territory:
 
-- **Generated**: the experience is composed and regenerated for the user's current intent instead of being limited to a publisher's fixed page.
-- **Personal**: source choices, information density, layout, Recipes, and future generations adapt to the user's explicit directions and direct manipulation.
-- **Territory**: the result is a user-shaped space that can span many sources, persist as a Session or Recipe, and evolve without inheriting each site's navigation model.
+- **Generated**: the experience is composed and regenerated for the user's current intent instead of being limited to a publisher's fixed page. Prism, not the publisher, decides the shape of the page.
+- **Personal**: source choices, information density, layout, Recipes, and future generations adapt to the user's explicit directions and direct manipulation. The same beam produces a different spectrum for each person.
+- **Territory**: the result is a user-shaped space that can span many sources, persist as a Session or Recipe, and evolve without inheriting each site's navigation model. Prism is the surface where those sources are experienced together.
 
-A Personal Territory is not a claim of ownership over source content, a closed information silo, or an excuse to hide provenance. It is the user's view and arrangement of the web: a living surface whose boundaries, composition, and behavior they can control. Sources retain their identity, attribution, and Original links while GPTBrowser provides the territory in which they are experienced together.
+That territory is not a claim of ownership over source content, a closed information silo, or an excuse to hide provenance. It is the user's view and arrangement of the web: a living surface whose boundaries, composition, and behavior they can control. Sources retain their identity, attribution, and Original links while Prism provides the territory in which they are experienced together.
 
 ## Core hypothesis
 
@@ -47,7 +47,7 @@ A user should be able to type:
 - “Give me something calm to watch while I eat.”
 - “Continue the topic I was exploring last night, but with less news.”
 
-GPTBrowser should decide which sources are useful, gather and normalize their content, plan a coherent experience, and render it as one directly manipulable page. A result may combine YouTube, news publications, communities, product and review sites, music services, or other sources without forcing the user to visit and operate each source separately.
+Prism should decide which sources are useful, gather and normalize their content, plan a coherent experience, and render it as one directly manipulable page. A result may combine YouTube, news publications, communities, product and review sites, music services, or other sources without forcing the user to visit and operate each source separately.
 
 Original websites remain essential, but their role changes. They are sources, content providers, evidence, and action surfaces—not necessarily the final user experience.
 
@@ -61,9 +61,9 @@ The Intent Bar should feel lightweight enough for vague input. The user should n
 
 ### 2. The output is a Generated View
 
-GPTBrowser produces one coherent, scrollable experience assembled from multiple sources. It should feel designed for the current intent rather than like search results, embedded website fragments, or a pile of cards from unrelated services.
+Prism produces one coherent, scrollable experience assembled from multiple sources. It should feel designed for the current intent rather than like search results, embedded website fragments, or a pile of cards from unrelated services. The Generated View is never organized per website or per content type; blocks mix sources by topic.
 
-The visible canvas is owned by GPTBrowser. It should be rendered in a WebView/WebView2/WKWebView-like shell from GPTBrowser's own component system. Browser-engine choice must remain behind an internal boundary; maintaining a Chromium fork is not a prerequisite for the product thesis.
+The visible canvas is owned by Prism. It should be rendered in a WebView/WebView2/WKWebView-like shell from Prism's own component system. Browser-engine choice must remain behind an internal boundary; maintaining a Chromium fork is not a prerequisite for the product thesis.
 
 ### 3. The LLM is architectural
 
@@ -131,7 +131,7 @@ An optional source-site viewer for provenance, full-fidelity reading, login, uns
 
 ## Deliberate sacrifices
 
-GPTBrowser is a content-consumption browser, not a work or enterprise browser. To preserve the concept, the project is willing to sacrifice compatibility with:
+Prism is a content-consumption browser, not a work or enterprise browser. To preserve the concept, the project is willing to sacrifice compatibility with:
 
 - complex work SaaS applications;
 - fixed enterprise workflows;
@@ -142,7 +142,7 @@ GPTBrowser is a content-consumption browser, not a work or enterprise browser. T
 - traditional tab-heavy browsing;
 - becoming a drop-in replacement for Chrome.
 
-This is not neglect; it is scope discipline. If supporting every existing browser assumption turns GPTBrowser back into a conventional browser with an AI feature, the experiment has failed before it has been tested.
+This is not neglect; it is scope discipline. If supporting every existing browser assumption turns Prism back into a conventional browser with an AI feature, the experiment has failed before it has been tested.
 
 ## Generated component system
 
@@ -212,6 +212,8 @@ A hidden execution environment that can load original sites, retain user-approve
 
 The source runner must never be allowed to inject arbitrary source DOM, CSS, or JavaScript into the Generated View.
 
+The implemented form of this boundary is the **SourceRuntime**. Each source origin gets a hidden, persistent, isolated Chromium session partition with its own cookies, localStorage, JavaScript, and navigation. Credentials live only in that Chromium session; they are never serialized to the renderer or to an LLM. Sources expose typed semantic projections only—never raw DOM—and every actionable projected element carries a `sourceId` and an `actionId`. Typed actions (`navigate`, `click`, `input`, `submit`, `back`, `forward`, `reload`) are routed to the owning source context and return either a refreshed projection or invalidation information. Destructive actions require an explicit confirmation flag before the runtime will execute them.
+
 ### Source adapters
 
 Source-specific modules that express discovery, retrieval, pagination, authentication, extraction, actions, rate limits, and provenance. The MVP should prefer a small number of reliable adapters over brittle universal support.
@@ -224,9 +226,11 @@ Converts APIs, feeds, DOM, HTML, embedded metadata, and other source material in
 
 Interprets the Intent and current Session, requests useful source categories, selects normalized items, and emits a constrained `LayoutPlan`. It should receive component capabilities and layout constraints, not an empty canvas and permission to invent a new application runtime.
 
+The default provider is the AGY CLI (model `gemini-3.8-flash-medium`, structured JSON output) behind a common runner interface, so the planner is a replaceable module rather than a vendor commitment. When no provider is available, an offline heuristic planner produces the same constrained `LayoutPlan` from the same rules. Codex remains available as an optional legacy provider.
+
 ### Component registry and Generated-View renderer
 
-Validate and render `LayoutPlan` objects using trusted GPTBrowser components. The renderer owns component code, accessibility, responsive behavior, interaction dispatch, sanitization, and failure states.
+Validate and render `LayoutPlan` objects using trusted Prism components. The renderer owns component code, accessibility, responsive behavior, interaction dispatch, sanitization, and failure states.
 
 ### Recipe and personalization store
 
@@ -243,6 +247,8 @@ Translates direct edits and language corrections into immediate Session updates 
 ### Optional Original-site viewer
 
 Displays the original site when required without collapsing the main product back into conventional browsing. It may share authentication state with the source runner under explicit permission and isolation rules.
+
+The **Login Rail** is the sign-in form of this viewer. When a source needs login, the app emits an auth-required state and opens a temporary rail at the right edge of the window. The rail is a real source surface that shares the same persistent partition as the hidden source context, so the user signs in there exactly as they would on the site. When login completes, the rail closes and the projection refreshes with the authenticated content. Passwords and cookies stay in the Chromium session and are never exposed to the generated UI.
 
 ## Proposed data model
 
@@ -407,6 +413,8 @@ It includes:
 9. Recipe save and load.
 10. Source provenance and an Original/source inspection path.
 11. Local Session history with generated states and user edits.
+12. Hidden per-origin source sessions with typed actions.
+13. Login Rail for sources that need sign-in.
 
 A useful first vertical slice could support video, articles/news, and community posts. It should demonstrate that one vague Intent can become a coherent page, that the user can reshape it quickly, and that the reshaped experience can be saved as a Recipe and regenerated later with fresh content.
 
@@ -431,7 +439,7 @@ Useful research measures may include time to first satisfying view, number of co
 
 ## Non-goals
 
-GPTBrowser is not currently trying to:
+Prism is not currently trying to:
 
 - reproduce every website accurately;
 - run every web application inside the generated canvas;
@@ -447,7 +455,7 @@ GPTBrowser is not currently trying to:
 
 ## Open-source philosophy
 
-GPTBrowser should be developed in public as both working software and a falsifiable product argument. The repository should make the new grammar legible: Intent, Session, Generated View, Recipe, and Regenerate should appear in architecture, schemas, UI language, and code—not only in marketing.
+Prism should be developed in public as both working software and a falsifiable product argument. The repository should make the new grammar legible: Intent, Session, Generated View, Recipe, and Regenerate should appear in architecture, schemas, UI language, and code—not only in marketing.
 
 Open development is important because a browser mediates identity, attention, history, and access to information. The community should be able to inspect how sources are selected, how layouts are planned, how provenance is preserved, and how preferences are inferred. Source adapters, component schemas, evaluation fixtures, and privacy boundaries should be documented well enough to challenge and improve.
 
@@ -468,8 +476,8 @@ If a feature mainly restores URLs, tabs, site UI, or compatibility as the center
 
 ## The statement
 
-GPTBrowser is an attempt to invent a possible new browser grammar, not to decorate the old one. Its Generated Personal Territory turns a momentary intent into a space the user can directly shape, revisit, and regenerate.
+Prism is an attempt to invent a possible new browser grammar, not to decorate the old one. It takes one beam of intent, spreads it across the spectrum of sources, and turns it into one page: a generated, personal territory the user can directly shape, revisit, and regenerate.
 
-The web remains the world's source layer. GPTBrowser adds an intent layer above it: one that can gather, normalize, compose, explain, regenerate, and learn from direct human shaping. The project succeeds if browsing content begins to feel less like operating websites and more like forming a living view of what the user wants now.
+The web remains the world's source layer. Prism adds an intent layer above it: one that can gather, normalize, compose, explain, regenerate, and learn from direct human shaping. The project succeeds if browsing content begins to feel less like operating websites and more like forming a living view of what the user wants now.
 
 > **Do not navigate the web. Describe the web you want, then shape it.**

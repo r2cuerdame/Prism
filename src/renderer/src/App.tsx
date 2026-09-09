@@ -6,6 +6,8 @@ import TuningBar from './components/TuningBar';
 import UpdateBanner from './components/UpdateBanner';
 import GeneratedView from './components/GeneratedView';
 import EmptyState from './components/EmptyState';
+import AuthRail from './components/AuthRail';
+import { authRailStore } from './state/authRailStore';
 import InspectPanel from './components/panels/InspectPanel';
 import HistoryPanel from './components/panels/HistoryPanel';
 import PreferencesPanel from './components/panels/PreferencesPanel';
@@ -23,6 +25,7 @@ export default function App(): ReactElement {
 
   useEffect(() => {
     void appStore.init();
+    authRailStore.init();
   }, []);
 
   useEffect(() => {
@@ -53,12 +56,15 @@ export default function App(): ReactElement {
   const session = act?.history.present;
   const hasPlan = Boolean(session?.plan && session.plan.blocks.length > 0);
 
+  // Two columns and nothing else: topic history on the left, ONE generated
+  // page on the right. No address bar, no tab strip — those are the grammar
+  // Prism replaces (GOAL.md § Product principles).
   return (
-    <div className="app">
+    <div className="app" data-testid="prism-shell">
       <Sidebar />
-      <div className="main-col">
+      <div className="main-col" data-testid="prism-page-column">
         <UpdateBanner />
-        <main className="canvas">
+        <main className="canvas" data-testid="prism-canvas">
           {session && hasPlan ? (
             <>
               <TuningBar />
@@ -100,6 +106,7 @@ export default function App(): ReactElement {
           </div>
         </aside>
       )}
+      <AuthRail />
       {state.toast && (
         <div className="toast" role="status">
           {state.toast}

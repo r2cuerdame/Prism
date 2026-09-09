@@ -39,4 +39,5 @@ const api: GptbApi = {
   onUpdaterStatus: subscribe<UpdaterStatus>(IPC.evUpdaterStatus)
 };
 
+contextBridge.exposeInMainWorld('prism', api);
 contextBridge.exposeInMainWorld('gptb', api);

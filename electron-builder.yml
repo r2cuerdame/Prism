@@ -1,5 +1,5 @@
-appId: com.r2cuerdame.gptbrowser
-productName: GPTBrowser
+appId: com.r2cuerdame.prism
+productName: Prism
 directories:
   buildResources: build
   output: release
@@ -22,4 +22,4 @@ nsis:
 publish:
   provider: github
   owner: r2cuerdame
-  repo: GPTBrowser
+  repo: Prism

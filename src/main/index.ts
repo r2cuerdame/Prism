@@ -13,7 +13,7 @@ function createWindow(): void {
     minHeight: 700,
     show: false,
     backgroundColor: '#0c0e13',
-    title: 'GPTBrowser',
+    title: 'Prism',
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

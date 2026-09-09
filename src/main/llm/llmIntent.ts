@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { InterpretedIntentSchema, type InterpretedIntent } from '@shared/domain/intent';
-import type { CodexRunner } from './codexRunner';
+import type { LlmRunner } from './llmRunner';
 
 /**
  * Flat output schema. Structured outputs are strict: every property must be
@@ -23,7 +23,7 @@ const LlmIntentSchema = z.object({
   followUp: z.boolean()
 });
 
-const SYSTEM = `You interpret what a person wants to consume on the web right now, for GPTBrowser (an intent-driven browser). Input can be vague ("심심해"), moody, or precise, in Korean or English. Vague input is VALID — infer a relaxed browsing interpretation, never ask for clarification.
+const SYSTEM = `You interpret what a person wants to consume on the web right now, for Prism (an intent-driven browser). Input can be vague ("심심해"), moody, or precise, in Korean or English. Vague input is VALID — infer a relaxed browsing interpretation, never ask for clarification.
 - topics: short english slugs (ai, gaming, news, dev, tech, science, world, music, ...).
 - moods: short slugs (browse, calm, focus, fun ...).
 - contentBalance: 0..1 desire weight per content kind (video/article/post/headline). Use 0.4 when you have no signal.
@@ -34,7 +34,7 @@ const SYSTEM = `You interpret what a person wants to consume on the web right no
 const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 
 export async function interpretIntentLlm(
-  runner: CodexRunner,
+  runner: LlmRunner,
   rawInput: string,
   prior: InterpretedIntent | null,
   prefSummary?: string
