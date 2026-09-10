@@ -51,6 +51,7 @@ import { interpretEditLlm } from './llm/llmEditor';
 import { openOriginalWindow, isSafeHttpUrl } from './originalViewer';
 import { createUpdater, type UpdaterHandle } from './updater';
 import { createSourceRuntime } from './sources/runtime/electronSourceRuntime';
+import { createElectronPageFactory } from './sources/runtime/electronSourcePage';
 import type { SourceRuntime } from './sources/runtime/types';
 import { SourceActionRequestSchema, type SourceActionResult } from '@shared/domain/projection';
 import { createAuthRailManager } from './auth/authRailManager';
@@ -162,7 +163,7 @@ export async function handleSourceAction(
  * userData path and four on-disk stores.
  */
 export function createMainSourceRuntime(): SourceRuntime {
-  return createSourceRuntime();
+  return createSourceRuntime({ pageFactory: createElectronPageFactory() });
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): MainServices {
