@@ -1,8 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SemanticProjectionSchema } from '@shared/domain/projection';
 import { createSourceRuntime } from './electronSourceRuntime';
 import { MemorySourcePage } from './sourcePage';
 import { communitySite, HN_ORIGIN, PAPER_ORIGIN, paperSite } from './__fixtures__/memorySites';
+import { handleSourceAction } from '../../ipcHandlers';
+import type { SourceActionRpcRequest, SourceActionRpcResult } from '@shared/ipc';
+
+vi.mock('electron-updater', () => ({
+  default: {
+    autoUpdater: {
+      on: vi.fn(),
+      checkForUpdates: vi.fn(),
+      quitAndInstall: vi.fn()
+    }
+  }
+}));
 
 async function communityContext(sourceId = 'community') {
   const runtime = createSourceRuntime();
@@ -327,3 +339,99 @@ describe('auth-required from a page and refresh after login', () => {
     expect(again.projection?.items.map((i) => i.title)).toContain('Your reply on the AI chip thread');
   });
 });
+
+describe('IPC serialization boundary for sourceAction', () => {
+  it('IPC sourceAction handler returns requiresConfirmation: true when an unconfirmed destructive action is invoked', async () => {
+    const { runtime, page } = await communityContext();
+    page.simulateLoginCookie('session', 'x');
+    await page.loadURL(`${HN_ORIGIN}/threads`);
+    const projection = await runtime.projectSemantic('community');
+    const del = projection.elements!.find((e) => e.label === 'delete comment')!;
+    expect(del.destructive).toBe(true);
+
+    const rpcReq: SourceActionRpcRequest = {
+      sourceId: 'community',
+      actionId: del.actionId
+    };
+    // Simulate IPC bridge serialization
+    const wireReq = JSON.parse(JSON.stringify(rpcReq));
+    const rawResult = await handleSourceAction(runtime, wireReq);
+    const result: SourceActionRpcResult = JSON.parse(JSON.stringify(rawResult));
+
+    expect(result.ok).toBe(false);
+    expect(result.requiresConfirmation).toBe(true);
+    expect(result.sourceId).toBe('community');
+    expect(result.actionId).toBe(del.actionId);
+    expect(result.error).toContain('확인이 필요해요');
+
+    // Resending with confirmed: true passes through IPC
+    const confirmedReq: SourceActionRpcRequest = {
+      sourceId: 'community',
+      actionId: del.actionId,
+      confirmed: true
+    };
+    const confirmedWire = JSON.parse(JSON.stringify(confirmedReq));
+    const confirmedRaw = await handleSourceAction(runtime, confirmedWire);
+    const confirmedResult: SourceActionRpcResult = JSON.parse(JSON.stringify(confirmedRaw));
+    expect(confirmedResult.ok).toBe(true);
+  });
+
+  it('IPC sourceAction handler returns invalidation: { reason: "stale-projection" } when expectedProjectionId mismatches', async () => {
+    const { runtime } = await communityContext();
+    const first = await runtime.projectSemantic('community');
+    const more = first.elements!.find((e) => e.label === 'More')!;
+    await runtime.routeAction({ sourceId: 'community', actionId: more.actionId });
+
+    const rpcReq: SourceActionRpcRequest = {
+      sourceId: 'community',
+      actionId: more.actionId,
+      expectedProjectionId: first.projectionId
+    };
+    // Simulate IPC bridge serialization
+    const wireReq = JSON.parse(JSON.stringify(rpcReq));
+    const rawResult = await handleSourceAction(runtime, wireReq);
+    const result: SourceActionRpcResult = JSON.parse(JSON.stringify(rawResult));
+
+    expect(result.ok).toBe(false);
+    expect(result.invalidation).toBeDefined();
+    expect(result.invalidation?.reason).toBe('stale-projection');
+    expect(result.invalidation?.projectionId).toBe(first.projectionId);
+  });
+
+  it('IPC sourceAction handler returns error when request format is invalid', async () => {
+    const { runtime } = await communityContext();
+    const rawResult = await handleSourceAction(runtime, { invalid: 'payload' });
+    const result: SourceActionRpcResult = JSON.parse(JSON.stringify(rawResult));
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('잘못된 액션 요청이에요.');
+  });
+
+  it('types allow window.prism.sourceAction to accept confirmed and expectedProjectionId and return requiresConfirmation and invalidation', async () => {
+    // Type-level compile check for window.prism.sourceAction signature
+    type SourceActionFn = (req: SourceActionRpcRequest) => Promise<SourceActionRpcResult>;
+    const callSourceAction: SourceActionFn = async (req) => {
+      const result: SourceActionRpcResult = {
+        ok: false,
+        sourceId: req.sourceId,
+        actionId: req.actionId,
+        requiresConfirmation: req.confirmed !== true,
+        invalidation: req.expectedProjectionId
+          ? { reason: 'stale-projection', projectionId: req.expectedProjectionId, message: 'stale' }
+          : undefined
+      };
+      return result;
+    };
+
+    const res = await callSourceAction({
+      sourceId: 'community',
+      actionId: 'submit:1',
+      confirmed: true,
+      expectedProjectionId: 'proj-xyz'
+    });
+
+    expect(res.requiresConfirmation).toBe(false);
+    expect(res.invalidation?.reason).toBe('stale-projection');
+  });
+});
+

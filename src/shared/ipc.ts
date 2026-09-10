@@ -6,6 +6,12 @@ import type { SessionCommand } from './domain/commands';
 import type { Recipe, RecipeLayoutSlot } from './domain/recipe';
 import type { PreferenceSignal } from './domain/preference';
 import type { Provenance } from './domain/provenance';
+import type {
+  ProjectionInvalidation,
+  SemanticProjection,
+  SourceActionRequest,
+  SourceActionResult
+} from './domain/projection';
 
 /** IPC channel names. Renderer talks only through the typed preload bridge. */
 export const IPC = {
@@ -174,19 +180,15 @@ export interface AuthRailResult {
   error?: string;
 }
 
-export interface SourceActionRpcRequest {
-  sourceId: string;
-  actionId: string;
-  payload?: Record<string, unknown>;
-}
+export type {
+  ProjectionInvalidation,
+  SemanticProjection,
+  SourceActionRequest,
+  SourceActionResult
+};
 
-export interface SourceActionRpcResult {
-  ok: boolean;
-  sourceId: string;
-  actionId: string;
-  data?: unknown;
-  error?: string;
-}
+export type SourceActionRpcRequest = SourceActionRequest;
+export type SourceActionRpcResult<T = unknown> = SourceActionResult<T>;
 
 export interface SettingsView {
   /** Active credential source. */
