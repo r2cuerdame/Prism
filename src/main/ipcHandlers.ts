@@ -51,7 +51,8 @@ import { interpretEditLlm } from './llm/llmEditor';
 import { openOriginalWindow, isSafeHttpUrl } from './originalViewer';
 import { createUpdater, type UpdaterHandle } from './updater';
 import { createSourceRuntime } from './sources/runtime/electronSourceRuntime';
-import { SourceActionRequestSchema } from '@shared/domain/projection';
+import type { SourceRuntime } from './sources/runtime/types';
+import { SourceActionRequestSchema, type SourceActionResult } from '@shared/domain/projection';
 import { createAuthRailManager } from './auth/authRailManager';
 
 /**
@@ -142,6 +143,17 @@ const ADAPTERS: SourceAdapter[] = [
 
 export interface MainServices {
   updater: UpdaterHandle;
+}
+
+export async function handleSourceAction(
+  sourceRuntime: Pick<SourceRuntime, 'routeAction'>,
+  raw: unknown
+): Promise<SourceActionResult> {
+  const parsed = SourceActionRequestSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, sourceId: '', actionId: '', error: '잘못된 액션 요청이에요.' };
+  }
+  return sourceRuntime.routeAction(parsed.data);
 }
 
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): MainServices {
@@ -514,18 +526,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
 
   // SourceRuntime & AuthRail IPC handlers
   ipcMain.handle(IPC.sourceAction, async (_e, raw: unknown) => {
-    const parsed = SourceActionRequestSchema.safeParse(raw);
-    if (!parsed.success) {
-      return { ok: false, sourceId: '', actionId: '', error: '잘못된 액션 요청이에요.' };
-    }
-    const result = await sourceRuntime.routeAction(parsed.data);
-    return {
-      ok: result.ok,
-      sourceId: result.sourceId,
-      actionId: result.actionId,
-      data: result.projection ?? result.data,
-      error: result.error
-    };
+    return handleSourceAction(sourceRuntime, raw);
   });
 
   ipcMain.handle(IPC.sourceProject, async (_e, sourceId: unknown) => {
