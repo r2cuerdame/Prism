@@ -52,7 +52,8 @@ import { openOriginalWindow, isSafeHttpUrl } from './originalViewer';
 import { createUpdater, type UpdaterHandle } from './updater';
 import { createSourceRuntime } from './sources/runtime/electronSourceRuntime';
 import { createElectronPageFactory } from './sources/runtime/electronSourcePage';
-import type { SourceRuntime } from './sources/runtime/types';
+import type { SourceRuntime, SourceContext } from './sources/runtime/types';
+import { normalizeOrigin } from './sources/runtime/origin';
 import { SourceActionRequestSchema, type SourceActionResult } from '@shared/domain/projection';
 import { createAuthRailManager } from './auth/authRailManager';
 
@@ -144,17 +145,136 @@ const ADAPTERS: SourceAdapter[] = [
 
 export interface MainServices {
   updater: UpdaterHandle;
+  sourceRuntime?: SourceRuntime;
+}
+
+export interface RegisterIpcHandlersOptions {
+  sourceRuntime?: SourceRuntime;
+  dataDir?: string;
+  adapters?: SourceAdapter[];
+  adapterContext?: AdapterContext;
+}
+
+function looksLikeOriginOrUrl(s: string): boolean {
+  if (typeof s !== 'string' || s.trim() === '') return false;
+  const trimmed = s.trim();
+  return (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    (trimmed.includes('.') && !trimmed.includes(' '))
+  );
+}
+
+/**
+ * Finds an active context by exact sourceId, canonical origin, or original item URL.
+ */
+export function findContext(
+  sourceRuntime: SourceRuntime,
+  idOrOrigin: string
+): SourceContext | undefined {
+  const direct = sourceRuntime.getContext(idOrOrigin);
+  if (direct) return direct;
+  let normalized: string | undefined;
+  try {
+    normalized = normalizeOrigin(
+      idOrOrigin.startsWith('http://') || idOrOrigin.startsWith('https://')
+        ? idOrOrigin
+        : `https://${idOrOrigin}`
+    );
+  } catch {
+    // not a valid url/origin
+  }
+  return sourceRuntime.listContexts().find((c) => {
+    if (c.id === idOrOrigin || c.origin === idOrOrigin) return true;
+    if (normalized && (c.origin === normalized || c.id === normalized)) return true;
+    return false;
+  });
+}
+
+/**
+ * Ensures a source context exists, resolving an existing one or lazily
+ * creating a new one if idOrOrigin is a valid URL or web origin.
+ */
+export async function ensureSourceContext(
+  sourceRuntime: SourceRuntime,
+  idOrOrigin: string
+): Promise<SourceContext | undefined> {
+  const existing = findContext(sourceRuntime, idOrOrigin);
+  if (existing) return existing;
+  if (!looksLikeOriginOrUrl(idOrOrigin)) return undefined;
+  try {
+    const origin = normalizeOrigin(
+      idOrOrigin.startsWith('http://') || idOrOrigin.startsWith('https://')
+        ? idOrOrigin
+        : `https://${idOrOrigin}`
+    );
+    return await sourceRuntime.createContext(origin, {
+      sourceId: idOrOrigin,
+      initialUrl: origin
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Eagerly creates a SourceContext in the runtime for each unique source origin
+ * returned by gatherSources. This ensures every gathered item's source is backed
+ * by a persistent Chromium session partition so semantic projection, typed actions,
+ * and the Login Rail are ready in production.
+ */
+export async function ensureContextsForItems(
+  sourceRuntime: SourceRuntime,
+  items: Array<{ sourceId?: string; sourceName?: string; originalUrl: string }>
+): Promise<void> {
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (!item.originalUrl) continue;
+    let origin: string;
+    try {
+      origin = normalizeOrigin(item.originalUrl);
+    } catch {
+      continue;
+    }
+    const sourceId = item.sourceId?.trim() || origin;
+    if (seen.has(sourceId)) continue;
+    seen.add(sourceId);
+
+    try {
+      await sourceRuntime.createContext(origin, {
+        sourceId,
+        sourceName: item.sourceName,
+        initialUrl: item.originalUrl
+      });
+    } catch (err) {
+      console.warn(`[sourceRuntime] Failed to create context for ${sourceId} (${origin}):`, err);
+    }
+  }
 }
 
 export async function handleSourceAction(
-  sourceRuntime: Pick<SourceRuntime, 'routeAction'>,
+  sourceRuntime: Pick<SourceRuntime, 'routeAction'> &
+    Partial<Pick<SourceRuntime, 'getContext' | 'listContexts' | 'createContext'>>,
   raw: unknown
 ): Promise<SourceActionResult> {
   const parsed = SourceActionRequestSchema.safeParse(raw);
   if (!parsed.success) {
     return { ok: false, sourceId: '', actionId: '', error: '잘못된 액션 요청이에요.' };
   }
-  return sourceRuntime.routeAction(parsed.data);
+  const req = { ...parsed.data };
+  if ('getContext' in sourceRuntime && typeof sourceRuntime.getContext === 'function') {
+    let ctx = sourceRuntime.getContext(req.sourceId);
+    if (!ctx && 'listContexts' in sourceRuntime && typeof sourceRuntime.listContexts === 'function') {
+      ctx = findContext(sourceRuntime as SourceRuntime, req.sourceId);
+      if (!ctx && 'createContext' in sourceRuntime && typeof sourceRuntime.createContext === 'function') {
+        ctx = await ensureSourceContext(sourceRuntime as SourceRuntime, req.sourceId);
+      }
+      if (ctx && ctx.id !== req.sourceId) {
+        req.sourceId = ctx.id;
+      }
+    }
+  }
+  return sourceRuntime.routeAction(req);
 }
 
 /**
@@ -166,13 +286,17 @@ export function createMainSourceRuntime(): SourceRuntime {
   return createSourceRuntime({ pageFactory: createElectronPageFactory() });
 }
 
-export function registerIpcHandlers(getWindow: () => BrowserWindow | null): MainServices {
-  const dataDir = join(app.getPath('userData'), 'prism');
+export function registerIpcHandlers(
+  getWindow: () => BrowserWindow | null,
+  options?: RegisterIpcHandlersOptions
+): MainServices {
+  const dataDir = options?.dataDir ?? join(app.getPath('userData'), 'prism');
   const recipes = createRecipeStore(dataDir);
   const prefs = createPreferenceStore(dataDir);
   const archive = createSessionArchive(dataDir);
   const settings = createSettingsStore(dataDir);
-  const ctx: AdapterContext = { http: createHttpClient(), now: () => new Date() };
+  const ctx: AdapterContext = options?.adapterContext ?? { http: createHttpClient(), now: () => new Date() };
+  const adapters = options?.adapters ?? ADAPTERS;
 
   const send = (channel: string, payload: unknown): void => {
     const win = getWindow();
@@ -180,7 +304,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
   };
   const progress = (p: GenerateProgress): void => send(IPC.evGenerateProgress, p);
 
-  const sourceRuntime = createMainSourceRuntime();
+  const sourceRuntime = options?.sourceRuntime ?? createMainSourceRuntime();
   const authRailManager = createAuthRailManager({
     sourceRuntime,
     sendToRenderer: send,
@@ -299,8 +423,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
 
       const tInterpreted = Date.now();
       progress({ sessionId: req.sessionId, phase: 'gathering' });
-      const gathered = await gatherSources(interpretation, ADAPTERS, ctx, { profile });
+      const gathered = await gatherSources(interpretation, adapters, ctx, { profile });
       const tGathered = Date.now();
+      await ensureContextsForItems(sourceRuntime, gathered.items);
 
       progress({ sessionId: req.sessionId, phase: 'planning' });
       // 재생성 with a page on screen: its own shape is the template — refill
@@ -403,10 +528,11 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
           if (k === 'article' || k === 'headline') classesFor.add('news');
           if (k === 'post') classesFor.add('community');
         }
-        const adapters = ADAPTERS.filter((a) => a.classes.some((c) => classesFor.has(c)));
-        const gathered = await gatherSources(req.interpretation, adapters, ctx, {
+        const blockAdapters = adapters.filter((a) => a.classes.some((c) => classesFor.has(c)));
+        const gathered = await gatherSources(req.interpretation, blockAdapters, ctx, {
           totalLimit: 30
         });
+        await ensureContextsForItems(sourceRuntime, gathered.items);
         // Identity across fetches is the original URL — item ids are minted
         // fresh on every gather, so excluding by id would exclude nothing.
         const exclude = new Set(req.excludeUrls);
@@ -541,7 +667,12 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
 
   ipcMain.handle(IPC.sourceProject, async (_e, sourceId: unknown) => {
     const id = z.string().parse(sourceId);
-    return sourceRuntime.projectSemantic(id);
+    let ctx = findContext(sourceRuntime, id);
+    if (!ctx) {
+      ctx = await ensureSourceContext(sourceRuntime, id);
+    }
+    const targetId = ctx ? ctx.id : id;
+    return sourceRuntime.projectSemantic(targetId);
   });
 
   ipcMain.handle(IPC.authRailOpen, (_e, req: unknown) => {
@@ -568,5 +699,5 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
     authRailManager.launchLoginSurface(z.string().parse(sourceId));
   });
 
-  return { updater };
+  return { updater, sourceRuntime };
 }
