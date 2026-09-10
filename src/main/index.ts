@@ -65,6 +65,12 @@ if (!gotLock) {
     createWindow();
     services.updater.startPeriodic();
 
+    app.on('before-quit', () => {
+      if (services.sourceRuntime) {
+        void services.sourceRuntime.dispose();
+      }
+    });
+
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });

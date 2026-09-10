@@ -54,6 +54,8 @@ export interface ElectronSourceRuntimeOptions {
   sessionProvider?: SessionProvider;
   /** Builds the hidden page for a new context (Electron: a WebContentsView). */
   pageFactory?: (partitionId: string, origin: string) => SourcePage;
+  /** Maximum number of active source contexts to retain before evicting least-recently-used. Defaults to 20. */
+  maxContexts?: number;
 }
 
 const NAV_ACTIONS: SourceActionDescriptor[] = [
@@ -72,9 +74,11 @@ export class ElectronSourceRuntime implements SourceRuntime {
   private projectionListeners = new Set<(projection: SemanticProjection) => void>();
   private sessionProvider: SessionProvider;
   private pageFactory?: (partitionId: string, origin: string) => SourcePage;
+  private maxContexts: number;
 
   constructor(options?: ElectronSourceRuntimeOptions) {
     this.pageFactory = options?.pageFactory;
+    this.maxContexts = options?.maxContexts ?? 20;
     if (options?.sessionProvider) {
       this.sessionProvider = options.sessionProvider;
     } else {
@@ -108,6 +112,19 @@ export class ElectronSourceRuntime implements SourceRuntime {
         return existing;
       }
       await this.destroyContext(sourceId);
+    }
+
+    if (this.maxContexts > 0 && this.contexts.size >= this.maxContexts) {
+      let oldest: SourceContext | undefined;
+      for (const c of this.contexts.values()) {
+        if (c.isDestroyed) continue;
+        if (!oldest || c.lastActiveAt < oldest.lastActiveAt) {
+          oldest = c;
+        }
+      }
+      if (oldest) {
+        await this.destroyContext(oldest.id);
+      }
     }
 
     // Isolate the partition: an untrusted source never gets devices/geo/etc.
