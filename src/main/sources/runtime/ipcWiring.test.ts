@@ -102,12 +102,14 @@ describe('Integrated IPC wiring for SourceRuntime and Login Rail (#16)', () => {
     }
   };
 
+  let mainServices: ReturnType<typeof registerIpcHandlers>;
+
   beforeEach(async () => {
     handlers.clear();
     sentToRenderer.length = 0;
     tmpDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'prism-ipc-wiring-'));
 
-    registerIpcHandlers(() => mockWindow as unknown as import('electron').BrowserWindow, {
+    mainServices = registerIpcHandlers(() => mockWindow as unknown as import('electron').BrowserWindow, {
       dataDir: tmpDataDir,
       adapters: FIXTURE_ADAPTERS,
       adapterContext: {
@@ -129,10 +131,14 @@ describe('Integrated IPC wiring for SourceRuntime and Login Rail (#16)', () => {
     vi.clearAllMocks();
   });
 
-  it('eagerly creates source contexts during IPC.generate and allows IPC.sourceProject without manual test-side createContext', async () => {
+  it('lazily creates source contexts on-demand and completes IPC.generate without awaiting hidden page loads', async () => {
     const generateHandler = handlers.get(IPC.generate);
     expect(generateHandler).toBeDefined();
 
+    // Stub a delayed loadURL to prove IPC.generate does not await page loads
+    loadURL.mockImplementationOnce(() => new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 300)));
+
+    const start = Date.now();
     // 1. Run generation via the real IPC handler
     const rawGenRes = await generateHandler!(
       {},
@@ -147,15 +153,23 @@ describe('Integrated IPC wiring for SourceRuntime and Login Rail (#16)', () => {
         refillShape: null
       }
     );
+    const elapsed = Date.now() - start;
+    // Delayed loadURL (300ms) was not awaited on the critical path of generate
+    expect(elapsed).toBeLessThan(150);
+
     const genRes = rawGenRes as GenerateResponse;
     expect(genRes.ok).toBe(true);
     expect(genRes.items.length).toBeGreaterThan(0);
+
+    // Contexts are NOT eagerly created during generate, and loadURL was not called
+    expect(mainServices.sourceRuntime?.listContexts().length).toBe(0);
+    expect(loadURL).not.toHaveBeenCalled();
 
     const firstItem = genRes.items[0];
     expect(firstItem.sourceId).toBeTruthy();
     expect(firstItem.originalUrl).toBeTruthy();
 
-    // 2. Drive IPC.sourceProject using the gathered item's sourceId
+    // 2. Drive IPC.sourceProject using the gathered item's sourceId -> lazily creates context
     const projectHandler = handlers.get(IPC.sourceProject);
     expect(projectHandler).toBeDefined();
 
@@ -165,10 +179,15 @@ describe('Integrated IPC wiring for SourceRuntime and Login Rail (#16)', () => {
     expect(projection.projectionId).toBeTruthy();
     expect(projection.origin).toBeDefined();
 
+    // Context now exists in runtime
+    expect(mainServices.sourceRuntime?.getContext(firstItem.sourceId)).toBeDefined();
+
     // 3. Drive IPC.sourceProject using the gathered item's original URL
     const projectionByUrl = (await projectHandler!({}, firstItem.originalUrl)) as SemanticProjection;
     expect(projectionByUrl).toBeDefined();
     expect(projectionByUrl.origin).toBe(projection.origin);
+    // Does not duplicate context
+    expect(mainServices.sourceRuntime?.listContexts().length).toBe(1);
 
     // 4. Drive IPC.sourceAction on the gathered source
     const actionHandler = handlers.get(IPC.sourceAction);
@@ -276,4 +295,40 @@ describe('Integrated IPC wiring for SourceRuntime and Login Rail (#16)', () => {
     expect(projection).toBeDefined();
     expect(projection.sourceId).toBe(regenItem.sourceId);
   });
+
+  it('does not collapse distinct sources or channels sharing an origin onto an arbitrary context', async () => {
+    const projectHandler = handlers.get(IPC.sourceProject);
+    const actionHandler = handlers.get(IPC.sourceAction);
+
+    // Directly create two distinct channel contexts sharing an origin
+    const origin = 'https://news.fixture.local';
+    await mainServices.sourceRuntime?.createContext(origin, {
+      sourceId: 'channel-alpha',
+      sourceName: 'Channel Alpha'
+    });
+    await mainServices.sourceRuntime?.createContext(origin, {
+      sourceId: 'channel-beta',
+      sourceName: 'Channel Beta'
+    });
+
+    const projAlpha = (await projectHandler!({}, 'channel-alpha')) as SemanticProjection;
+    const projBeta = (await projectHandler!({}, 'channel-beta')) as SemanticProjection;
+
+    expect(projAlpha.sourceId).toBe('channel-alpha');
+    expect(projBeta.sourceId).toBe('channel-beta');
+
+    // handleSourceAction preserves requested sourceId
+    const actionRes = (await actionHandler!(
+      {},
+      {
+        sourceId: 'channel-beta',
+        actionId: 'navigate',
+        payload: { url: 'https://news.fixture.local/article/1-2' }
+      }
+    )) as SourceActionResult;
+
+    expect(actionRes.ok).toBe(true);
+    expect(actionRes.sourceId).toBe('channel-beta');
+  });
 });
+

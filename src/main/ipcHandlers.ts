@@ -143,6 +143,13 @@ const ADAPTERS: SourceAdapter[] = [
   redditAdapter
 ];
 
+export interface KnownSourceMeta {
+  sourceId: string;
+  origin: string;
+  sourceName?: string;
+  initialUrl?: string;
+}
+
 export interface MainServices {
   updater: UpdaterHandle;
   sourceRuntime?: SourceRuntime;
@@ -153,6 +160,7 @@ export interface RegisterIpcHandlersOptions {
   dataDir?: string;
   adapters?: SourceAdapter[];
   adapterContext?: AdapterContext;
+  knownSources?: Map<string, KnownSourceMeta>;
 }
 
 function looksLikeOriginOrUrl(s: string): boolean {
@@ -167,13 +175,24 @@ function looksLikeOriginOrUrl(s: string): boolean {
 
 /**
  * Finds an active context by exact sourceId, canonical origin, or original item URL.
+ * Avoids collapsing distinct channels/subreddits sharing an origin onto an arbitrary context.
  */
 export function findContext(
   sourceRuntime: SourceRuntime,
-  idOrOrigin: string
+  idOrOrigin: string,
+  knownSources?: Map<string, KnownSourceMeta>
 ): SourceContext | undefined {
   const direct = sourceRuntime.getContext(idOrOrigin);
   if (direct) return direct;
+
+  if (knownSources) {
+    const meta = knownSources.get(idOrOrigin);
+    if (meta && meta.sourceId !== idOrOrigin) {
+      const fromMeta = sourceRuntime.getContext(meta.sourceId);
+      if (fromMeta) return fromMeta;
+    }
+  }
+
   let normalized: string | undefined;
   try {
     normalized = normalizeOrigin(
@@ -184,23 +203,49 @@ export function findContext(
   } catch {
     // not a valid url/origin
   }
-  return sourceRuntime.listContexts().find((c) => {
-    if (c.id === idOrOrigin || c.origin === idOrOrigin) return true;
-    if (normalized && (c.origin === normalized || c.id === normalized)) return true;
-    return false;
-  });
+
+  if (normalized) {
+    const directNormalized = sourceRuntime.getContext(normalized);
+    if (directNormalized) return directNormalized;
+
+    // Avoid collapsing distinct source channels/subreddits onto a single context:
+    // only match by origin if exactly one active context shares that origin.
+    const matchingOrigin = sourceRuntime.listContexts().filter((c) => c.origin === normalized);
+    if (matchingOrigin.length === 1) {
+      return matchingOrigin[0];
+    }
+  }
+
+  return undefined;
 }
 
 /**
  * Ensures a source context exists, resolving an existing one or lazily
- * creating a new one if idOrOrigin is a valid URL or web origin.
+ * creating a new one if idOrOrigin is a known source or a valid URL/web origin.
  */
 export async function ensureSourceContext(
   sourceRuntime: SourceRuntime,
-  idOrOrigin: string
+  idOrOrigin: string,
+  knownSources?: Map<string, KnownSourceMeta>
 ): Promise<SourceContext | undefined> {
-  const existing = findContext(sourceRuntime, idOrOrigin);
+  const existing = findContext(sourceRuntime, idOrOrigin, knownSources);
   if (existing) return existing;
+
+  // 1. Check known sources first (gathered items)
+  const meta = knownSources?.get(idOrOrigin);
+  if (meta) {
+    try {
+      return await sourceRuntime.createContext(meta.origin, {
+        sourceId: meta.sourceId,
+        sourceName: meta.sourceName,
+        initialUrl: meta.initialUrl
+      });
+    } catch {
+      return undefined;
+    }
+  }
+
+  // 2. Fall back to valid origin or URL
   if (!looksLikeOriginOrUrl(idOrOrigin)) return undefined;
   try {
     const origin = normalizeOrigin(
@@ -208,8 +253,12 @@ export async function ensureSourceContext(
         ? idOrOrigin
         : `https://${idOrOrigin}`
     );
+    const sourceId =
+      idOrOrigin.startsWith('http://') || idOrOrigin.startsWith('https://')
+        ? origin
+        : idOrOrigin;
     return await sourceRuntime.createContext(origin, {
-      sourceId: idOrOrigin,
+      sourceId,
       initialUrl: origin
     });
   } catch {
@@ -218,15 +267,46 @@ export async function ensureSourceContext(
 }
 
 /**
- * Eagerly creates a SourceContext in the runtime for each unique source origin
- * returned by gatherSources. This ensures every gathered item's source is backed
- * by a persistent Chromium session partition so semantic projection, typed actions,
- * and the Login Rail are ready in production.
+ * Registers metadata for gathered items into knownSources without eagerly
+ * loading pages or creating WebContentsViews on the generation critical path.
+ */
+export function registerKnownSources(
+  items: Array<{ sourceId?: string; sourceName?: string; originalUrl: string }>,
+  knownSources: Map<string, KnownSourceMeta>
+): void {
+  for (const item of items) {
+    if (!item.originalUrl) continue;
+    let origin: string;
+    try {
+      origin = normalizeOrigin(item.originalUrl);
+    } catch {
+      continue;
+    }
+    const sourceId = item.sourceId?.trim() || origin;
+    const meta: KnownSourceMeta = {
+      sourceId,
+      origin,
+      sourceName: item.sourceName,
+      initialUrl: item.originalUrl
+    };
+    knownSources.set(sourceId, meta);
+    knownSources.set(item.originalUrl, meta);
+  }
+}
+
+/**
+ * Preserved for backwards compatibility or manual prewarming, but no longer
+ * awaited on the critical path of IPC.generate or IPC.regenerateBlock.
  */
 export async function ensureContextsForItems(
   sourceRuntime: SourceRuntime,
-  items: Array<{ sourceId?: string; sourceName?: string; originalUrl: string }>
+  items: Array<{ sourceId?: string; sourceName?: string; originalUrl: string }>,
+  knownSources?: Map<string, KnownSourceMeta>
 ): Promise<void> {
+  if (knownSources) {
+    registerKnownSources(items, knownSources);
+    return;
+  }
   const seen = new Set<string>();
   for (const item of items) {
     if (!item.originalUrl) continue;
@@ -255,26 +335,29 @@ export async function ensureContextsForItems(
 export async function handleSourceAction(
   sourceRuntime: Pick<SourceRuntime, 'routeAction'> &
     Partial<Pick<SourceRuntime, 'getContext' | 'listContexts' | 'createContext'>>,
-  raw: unknown
+  raw: unknown,
+  knownSources?: Map<string, KnownSourceMeta>
 ): Promise<SourceActionResult> {
   const parsed = SourceActionRequestSchema.safeParse(raw);
   if (!parsed.success) {
     return { ok: false, sourceId: '', actionId: '', error: '잘못된 액션 요청이에요.' };
   }
   const req = { ...parsed.data };
+  const requestedSourceId = req.sourceId;
   if ('getContext' in sourceRuntime && typeof sourceRuntime.getContext === 'function') {
     let ctx = sourceRuntime.getContext(req.sourceId);
     if (!ctx && 'listContexts' in sourceRuntime && typeof sourceRuntime.listContexts === 'function') {
-      ctx = findContext(sourceRuntime as SourceRuntime, req.sourceId);
+      ctx = findContext(sourceRuntime as SourceRuntime, req.sourceId, knownSources);
       if (!ctx && 'createContext' in sourceRuntime && typeof sourceRuntime.createContext === 'function') {
-        ctx = await ensureSourceContext(sourceRuntime as SourceRuntime, req.sourceId);
+        ctx = await ensureSourceContext(sourceRuntime as SourceRuntime, req.sourceId, knownSources);
       }
       if (ctx && ctx.id !== req.sourceId) {
         req.sourceId = ctx.id;
       }
     }
   }
-  return sourceRuntime.routeAction(req);
+  const result = await sourceRuntime.routeAction(req);
+  return { ...result, sourceId: requestedSourceId };
 }
 
 /**
@@ -283,7 +366,10 @@ export async function handleSourceAction(
  * userData path and four on-disk stores.
  */
 export function createMainSourceRuntime(): SourceRuntime {
-  return createSourceRuntime({ pageFactory: createElectronPageFactory() });
+  return createSourceRuntime({
+    pageFactory: createElectronPageFactory(),
+    maxContexts: 20
+  });
 }
 
 export function registerIpcHandlers(
@@ -297,6 +383,7 @@ export function registerIpcHandlers(
   const settings = createSettingsStore(dataDir);
   const ctx: AdapterContext = options?.adapterContext ?? { http: createHttpClient(), now: () => new Date() };
   const adapters = options?.adapters ?? ADAPTERS;
+  const knownSources = options?.knownSources ?? new Map<string, KnownSourceMeta>();
 
   const send = (channel: string, payload: unknown): void => {
     const win = getWindow();
@@ -425,7 +512,7 @@ export function registerIpcHandlers(
       progress({ sessionId: req.sessionId, phase: 'gathering' });
       const gathered = await gatherSources(interpretation, adapters, ctx, { profile });
       const tGathered = Date.now();
-      await ensureContextsForItems(sourceRuntime, gathered.items);
+      registerKnownSources(gathered.items, knownSources);
 
       progress({ sessionId: req.sessionId, phase: 'planning' });
       // 재생성 with a page on screen: its own shape is the template — refill
@@ -532,7 +619,7 @@ export function registerIpcHandlers(
         const gathered = await gatherSources(req.interpretation, blockAdapters, ctx, {
           totalLimit: 30
         });
-        await ensureContextsForItems(sourceRuntime, gathered.items);
+        registerKnownSources(gathered.items, knownSources);
         // Identity across fetches is the original URL — item ids are minted
         // fresh on every gather, so excluding by id would exclude nothing.
         const exclude = new Set(req.excludeUrls);
@@ -662,14 +749,14 @@ export function registerIpcHandlers(
 
   // SourceRuntime & AuthRail IPC handlers
   ipcMain.handle(IPC.sourceAction, async (_e, raw: unknown) => {
-    return handleSourceAction(sourceRuntime, raw);
+    return handleSourceAction(sourceRuntime, raw, knownSources);
   });
 
   ipcMain.handle(IPC.sourceProject, async (_e, sourceId: unknown) => {
     const id = z.string().parse(sourceId);
-    let ctx = findContext(sourceRuntime, id);
+    let ctx = findContext(sourceRuntime, id, knownSources);
     if (!ctx) {
-      ctx = await ensureSourceContext(sourceRuntime, id);
+      ctx = await ensureSourceContext(sourceRuntime, id, knownSources);
     }
     const targetId = ctx ? ctx.id : id;
     return sourceRuntime.projectSemantic(targetId);

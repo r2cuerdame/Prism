@@ -59,15 +59,19 @@ function waitForLoad(wc: WebContents, timeoutMs: number): Promise<void> {
       if (done) return;
       done = true;
       clearTimeout(timer);
-      wc.removeListener('did-finish-load', finish);
-      wc.removeListener('did-fail-load', finish);
-      wc.removeListener('did-stop-loading', finish);
+      if (typeof wc.removeListener === 'function') {
+        wc.removeListener('did-finish-load', finish);
+        wc.removeListener('did-fail-load', finish);
+        wc.removeListener('did-stop-loading', finish);
+      }
       resolve();
     };
     const timer = setTimeout(finish, timeoutMs);
-    wc.once('did-finish-load', finish);
-    wc.once('did-fail-load', finish);
-    wc.once('did-stop-loading', finish);
+    if (typeof wc.once === 'function') {
+      wc.once('did-finish-load', finish);
+      wc.once('did-fail-load', finish);
+      wc.once('did-stop-loading', finish);
+    }
   });
 }
 
@@ -118,11 +122,16 @@ export class ElectronSourcePage implements SourcePage {
     if (this.destroyed) throw new Error(`source page for ${this.origin} was destroyed`);
   }
 
-  async loadURL(url: string): Promise<void> {
+  async loadURL(url: string, timeoutMs = 15_000): Promise<void> {
     this.assertAlive();
     if (!isSafeHttpUrl(url)) throw new Error(`refused to load non-http url: ${url}`);
+    const wc = this.view.webContents;
+    const done = waitForLoad(wc, timeoutMs);
     try {
-      await this.view.webContents.loadURL(url);
+      const loadPromise = Promise.resolve(wc.loadURL(url)).catch(() => {
+        /* did-fail-load or aborted navigation */
+      });
+      await Promise.race([loadPromise, done]);
     } catch {
       /* did-fail-load: the snapshot will show what actually rendered */
     }
