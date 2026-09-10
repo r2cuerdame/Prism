@@ -51,6 +51,7 @@ import { interpretEditLlm } from './llm/llmEditor';
 import { openOriginalWindow, isSafeHttpUrl } from './originalViewer';
 import { createUpdater, type UpdaterHandle } from './updater';
 import { createSourceRuntime } from './sources/runtime/electronSourceRuntime';
+import { createElectronPageFactory } from './sources/runtime/electronSourcePage';
 import type { SourceRuntime } from './sources/runtime/types';
 import { SourceActionRequestSchema, type SourceActionResult } from '@shared/domain/projection';
 import { createAuthRailManager } from './auth/authRailManager';
@@ -156,6 +157,15 @@ export async function handleSourceAction(
   return sourceRuntime.routeAction(parsed.data);
 }
 
+/**
+ * Production wiring for the source runtime. Exported so the default wiring is
+ * testable without standing up the whole IPC surface, which needs a real
+ * userData path and four on-disk stores.
+ */
+export function createMainSourceRuntime(): SourceRuntime {
+  return createSourceRuntime({ pageFactory: createElectronPageFactory() });
+}
+
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): MainServices {
   const dataDir = join(app.getPath('userData'), 'prism');
   const recipes = createRecipeStore(dataDir);
@@ -170,7 +180,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
   };
   const progress = (p: GenerateProgress): void => send(IPC.evGenerateProgress, p);
 
-  const sourceRuntime = createSourceRuntime();
+  const sourceRuntime = createMainSourceRuntime();
   const authRailManager = createAuthRailManager({
     sourceRuntime,
     sendToRenderer: send,
