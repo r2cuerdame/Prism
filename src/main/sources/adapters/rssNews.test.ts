@@ -138,6 +138,51 @@ describe('rssNewsAdapter', () => {
     expect(result.provenance.every((p) => refs.has(p.id))).toBe(true);
   });
 
+  it('interleaves feeds so the limit is not saturated by the first feed', async () => {
+    const fetched: string[] = [];
+    const ctx = ctxWith(async (url) => {
+      fetched.push(url);
+      return RSS2_FIXTURE;
+    });
+    // 'tech' matches more than three feeds; the fixture yields 2 items per feed,
+    // so a linear slice(0, 3) would come entirely from feed #1.
+    const result = await rssNewsAdapter.fetchItems(req({ topics: ['tech'], limit: 3 }), ctx);
+    expect(fetched).toHaveLength(3);
+    expect(result.items).toHaveLength(3);
+    expect(new Set(result.items.map((i) => i.sourceName)).size).toBe(3);
+  });
+
+  it('fires feed requests concurrently instead of one after another', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const ctx = ctxWith(
+      () =>
+        new Promise<string>((resolve) => {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          setTimeout(() => {
+            inFlight -= 1;
+            resolve(RSS2_FIXTURE);
+          }, 5);
+        })
+    );
+    await rssNewsAdapter.fetchItems(req({ topics: ['tech'] }), ctx);
+    expect(peak).toBe(3);
+  });
+
+  it('keeps items from surviving feeds when one feed fails', async () => {
+    let calls = 0;
+    const ctx = ctxWith(async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('network down');
+      return RSS2_FIXTURE;
+    });
+    const result = await rssNewsAdapter.fetchItems(req({ topics: ['tech'], limit: 10 }), ctx);
+    expect(result.items.length).toBeGreaterThan(0);
+    expect(new Set(result.items.map((i) => i.sourceName)).size).toBe(2);
+    expect(result.errors.join(' ')).toContain('network down');
+  });
+
   it('collects per-feed fetch failures instead of throwing', async () => {
     const ctx = ctxWith(async () => {
       throw new Error('network down');

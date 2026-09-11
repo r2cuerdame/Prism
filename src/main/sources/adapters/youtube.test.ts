@@ -108,6 +108,51 @@ describe('youtubeAdapter', () => {
     expect(result.provenance.every((p) => refs.has(p.id))).toBe(true);
   });
 
+  it('interleaves channels so the limit is not saturated by the first channel', async () => {
+    const fetched: string[] = [];
+    const ctx = ctxWith(async (url) => {
+      fetched.push(url);
+      return YOUTUBE_FEED_FIXTURE;
+    });
+    // 'science' matches three channels; the fixture yields 2 videos per channel,
+    // so a linear slice(0, 3) would come entirely from channel #1.
+    const result = await youtubeAdapter.fetchItems(req({ topics: ['science'], limit: 3 }), ctx);
+    expect(fetched).toHaveLength(3);
+    expect(result.items).toHaveLength(3);
+    expect(new Set(result.items.map((i) => i.sourceId)).size).toBe(3);
+  });
+
+  it('fires channel requests concurrently instead of one after another', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const ctx = ctxWith(
+      () =>
+        new Promise<string>((resolve) => {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          setTimeout(() => {
+            inFlight -= 1;
+            resolve(YOUTUBE_FEED_FIXTURE);
+          }, 5);
+        })
+    );
+    await youtubeAdapter.fetchItems(req({ topics: ['science'] }), ctx);
+    expect(peak).toBe(3);
+  });
+
+  it('keeps items from surviving channels when one channel fails', async () => {
+    let calls = 0;
+    const ctx = ctxWith(async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('offline');
+      return YOUTUBE_FEED_FIXTURE;
+    });
+    const result = await youtubeAdapter.fetchItems(req({ topics: ['science'], limit: 10 }), ctx);
+    expect(result.items.length).toBeGreaterThan(0);
+    expect(new Set(result.items.map((i) => i.sourceId)).size).toBe(2);
+    expect(result.errors.join(' ')).toContain('offline');
+  });
+
   it('falls back to general/science channels for unknown topics', async () => {
     const fetched: string[] = [];
     const ctx = ctxWith(async (url) => {

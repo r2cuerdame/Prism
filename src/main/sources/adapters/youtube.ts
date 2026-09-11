@@ -7,6 +7,7 @@ import type {
   SourceAdapter,
   SourceRequest
 } from '../types';
+import { fetchTargetsInterleaved } from './fanOut';
 import { createXmlParser, xmlAttr, xmlDate, xmlText } from './rssNews';
 
 export interface ChannelMeta {
@@ -171,29 +172,16 @@ export const youtubeAdapter: SourceAdapter = {
     if ([...topics].some((t) => registryTopics.has(t))) score += 0.2;
     return Math.max(0.4, Math.min(1, score));
   },
-  async fetchItems(req: SourceRequest, ctx: AdapterContext): Promise<AdapterResult> {
-    const items: SourceItem[] = [];
-    const provenance: Provenance[] = [];
-    const errors: string[] = [];
-    for (const ch of selectChannels(req)) {
-      try {
+  fetchItems(req: SourceRequest, ctx: AdapterContext): Promise<AdapterResult> {
+    return fetchTargetsInterleaved(
+      selectChannels(req),
+      async (ch) => {
         const xml = await ctx.http.getText(channelFeedUrl(ch.channelId));
         const r = parseYoutubeFeed(xml, ch, ctx.now());
-        items.push(...r.items.map((it) => ({ ...it, lang: ch.lang })));
-        provenance.push(...r.provenance);
-        errors.push(...r.errors);
-      } catch (e) {
-        errors.push(
-          `${ch.name}: 피드 요청 실패 (${e instanceof Error ? e.message : String(e)})`
-        );
-      }
-    }
-    const kept = items.slice(0, req.limit);
-    const refs = new Set(kept.map((i) => i.provenanceRef));
-    return {
-      items: kept,
-      provenance: provenance.filter((p) => refs.has(p.id)),
-      errors
-    };
+        return { ...r, items: r.items.map((it) => ({ ...it, lang: ch.lang })) };
+      },
+      (ch, e) => `${ch.name}: 피드 요청 실패 (${e instanceof Error ? e.message : String(e)})`,
+      req.limit
+    );
   }
 };

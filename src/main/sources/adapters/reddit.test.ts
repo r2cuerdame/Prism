@@ -110,6 +110,59 @@ describe('redditAdapter', () => {
     expect(result.provenance.every((p) => refs.has(p.id))).toBe(true);
   });
 
+  it('interleaves subs so the limit is not saturated by the first sub', async () => {
+    const fetched: string[] = [];
+    const ctx = ctxWith(async (url) => {
+      fetched.push(url);
+      return JSON.parse(REDDIT_HOT_FIXTURE);
+    });
+    // tech + gaming + dev select three subs; the fixture yields 3 posts per sub,
+    // so a linear slice(0, 3) would come entirely from sub #1.
+    const result = await redditAdapter.fetchItems(
+      req({ topics: ['tech', 'gaming', 'dev'], limit: 3 }),
+      ctx
+    );
+    expect(fetched).toEqual([
+      subHotUrl('technology', 3),
+      subHotUrl('gaming', 3),
+      subHotUrl('programming', 3)
+    ]);
+    expect(result.items).toHaveLength(3);
+    expect(new Set(result.items.map((i) => i.sourceId)).size).toBe(3);
+  });
+
+  it('fires sub requests concurrently instead of one after another', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const ctx = ctxWith(
+      () =>
+        new Promise<unknown>((resolve) => {
+          inFlight += 1;
+          peak = Math.max(peak, inFlight);
+          setTimeout(() => {
+            inFlight -= 1;
+            resolve(JSON.parse(REDDIT_HOT_FIXTURE));
+          }, 5);
+        })
+    );
+    await redditAdapter.fetchItems(req({ topics: ['tech', 'gaming', 'dev'] }), ctx);
+    expect(peak).toBe(3);
+  });
+
+  it('keeps posts from surviving subs when one sub is 403', async () => {
+    const ctx = ctxWith(async (url) => {
+      if (url.includes('/r/technology/')) throw new Error('HTTP 403 Forbidden');
+      return JSON.parse(REDDIT_HOT_FIXTURE);
+    });
+    const result = await redditAdapter.fetchItems(
+      req({ topics: ['tech', 'gaming', 'dev'], limit: 10 }),
+      ctx
+    );
+    expect(result.items.length).toBeGreaterThan(0);
+    expect(new Set(result.items.map((i) => i.sourceId)).size).toBe(2);
+    expect(result.errors.join(' ')).toContain('403');
+  });
+
   it('degrades gracefully on 403 (expected for unauthenticated reddit)', async () => {
     const ctx = ctxWith(async () => {
       throw new Error('HTTP 403 Forbidden');

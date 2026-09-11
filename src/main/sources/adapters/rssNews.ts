@@ -8,6 +8,7 @@ import type {
   SourceAdapter,
   SourceRequest
 } from '../types';
+import { fetchTargetsInterleaved } from './fanOut';
 
 export interface FeedMeta {
   url: string;
@@ -311,29 +312,13 @@ export const rssNewsAdapter: SourceAdapter = {
     if (FEED_REGISTRY.some((f) => f.lang === req.locale)) score += 0.2;
     return Math.min(1, score);
   },
-  async fetchItems(req: SourceRequest, ctx: AdapterContext): Promise<AdapterResult> {
-    const items: SourceItem[] = [];
-    const provenance: Provenance[] = [];
-    const errors: string[] = [];
-    for (const feed of selectFeeds(req)) {
-      try {
-        const xml = await ctx.http.getText(feed.url);
-        const r = parseRssFeed(xml, feed, ctx.now());
-        items.push(...r.items);
-        provenance.push(...r.provenance);
-        errors.push(...r.errors);
-      } catch (e) {
-        errors.push(
-          `${feed.name}: 피드 요청 실패 (${e instanceof Error ? e.message : String(e)})`
-        );
-      }
-    }
-    const kept = items.slice(0, req.limit);
-    const refs = new Set(kept.map((i) => i.provenanceRef));
-    return {
-      items: kept,
-      provenance: provenance.filter((p) => refs.has(p.id)),
-      errors
-    };
+  fetchItems(req: SourceRequest, ctx: AdapterContext): Promise<AdapterResult> {
+    return fetchTargetsInterleaved(
+      selectFeeds(req),
+      async (feed) => parseRssFeed(await ctx.http.getText(feed.url), feed, ctx.now()),
+      (feed, e) =>
+        `${feed.name}: 피드 요청 실패 (${e instanceof Error ? e.message : String(e)})`,
+      req.limit
+    );
   }
 };
