@@ -455,6 +455,31 @@ describe('heuristicPlan cross-source synthesis', () => {
     expectCatalogConstraints(plan);
   });
 
+  it('fills topic and kind-specific slots in the same saved recipe', () => {
+    const items = multiSourceItems();
+    const { plan } = heuristicPlan(
+      reqOf(items, {
+        recipeShape: {
+          name: '주제와 피드',
+          layoutTemplate: [
+            { componentType: 'topic_cluster', span: 12 },
+            { componentType: 'article_list', span: 6 },
+            { componentType: 'community_posts', span: 6 }
+          ],
+          density: 'comfortable'
+        }
+      })
+    );
+
+    expect(types(plan)).toEqual([
+      'topic_cluster',
+      'article_list',
+      'community_posts',
+      'source_list'
+    ]);
+    expectCatalogConstraints(plan);
+  });
+
   it('falls back to the planner page when no template slot can be filled', () => {
     const items = multiSourceItems();
     const { plan } = heuristicPlan(
