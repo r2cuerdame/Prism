@@ -134,8 +134,22 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   };
   for (const it of available) byKind[it.kind].push(it);
 
+  const profile = req.profile;
+  const isComponentExcluded = (compType: string): boolean =>
+    profile?.negative.components.some((c) => c.hard && c.value === compType) ?? false;
+  const isKindExcluded = (kind: SourceItemKind): boolean =>
+    profile?.negative.kinds.some((k) => k.hard && k.value === kind) ?? false;
+
   const mix = req.hints.mix;
   for (const kind of KINDS) {
+    // A hard-rejected kind never reaches the page: not the anchor, not a
+    // card, not a section. The orchestrator only downranks it, so this is
+    // the gate.
+    if (isKindExcluded(kind) && byKind[kind].length > 0) {
+      byKind[kind] = [];
+      issues.push(`'${kind}' 항목은 사용자가 제외해서 뺐습니다.`);
+      continue;
+    }
     if (mix[kind] === 'less' && byKind[kind].length > 0) {
       const kept = Math.floor(byKind[kind].length / 2);
       byKind[kind] = byKind[kind].slice(0, kept);
@@ -147,12 +161,6 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   const keptIds = new Set<string>(KINDS.flatMap((k) => byKind[k].map((it) => it.id)));
   const pool = available.filter((it) => keptIds.has(it.id));
   const distinctSources = new Set(pool.map((it) => it.sourceName));
-
-  const profile = req.profile;
-  const isComponentExcluded = (compType: string): boolean =>
-    profile?.negative.components.some((c) => c.hard && c.value === compType) ?? false;
-  const isKindExcluded = (kind: SourceItemKind): boolean =>
-    profile?.negative.kinds.some((k) => k.hard && k.value === kind) ?? false;
 
   // --- synthesis opener ---------------------------------------------------
   // Citing an item does not consume it: a bullet about an article and the
@@ -180,7 +188,7 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   const ANCHOR_VIDEO_CAP = 6;
   const anchorUsed = new Set<string>();
   const skipVideoAnchor =
-    mix.video === 'less' || isComponentExcluded('media_strip') || isKindExcluded('video');
+    mix.video === 'less' || isComponentExcluded('video_player') || isKindExcluded('video');
   const anchorVideos =
     skipVideoAnchor ? [] : interleaveBySource(byKind.video).slice(0, ANCHOR_VIDEO_CAP);
   for (const v of anchorVideos) anchorUsed.add(v.id);
@@ -195,9 +203,13 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   const recipeWantsClusters =
     req.recipeShape?.layoutTemplate.some((s) => s.componentType === 'topic_cluster') ?? false;
   const followRecipe = req.recipeShape !== undefined && !recipeWantsClusters;
-  const multiSource = followRecipe
-    ? []
-    : clusterByTopic(bodyPool, { minSources: 2, maxClusters: 6 });
+  // A hard-rejected topic_cluster means no topic cards at all; the body falls
+  // through to the kind sections below.
+  const clustersExcluded = isComponentExcluded('topic_cluster');
+  const multiSource =
+    followRecipe || clustersExcluded
+      ? []
+      : clusterByTopic(bodyPool, { minSources: 2, maxClusters: 6 });
   // No single-source cards: one card holding only one outlet reads as "this
   // section is that site". Those items fall through to the mixed cards below,
   // where they alternate with everything else.
@@ -226,9 +238,10 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   // Leftovers become mixed cards too, never per-kind sections.
   const MIXED_CAP = 8;
   const leftovers = interleaveBySource(bodyPool.filter((it) => !clustered.has(it.id)));
-  const mixedLabels = followRecipe
-    ? []
-    : ['그 밖에 눈에 띈 것들', '더 둘러보기', '이어서 볼 것들', '마저 훑어보기'];
+  const mixedLabels =
+    followRecipe || clustersExcluded
+      ? []
+      : ['그 밖에 눈에 띈 것들', '더 둘러보기', '이어서 볼 것들', '마저 훑어보기'];
   for (let i = 0; i < mixedLabels.length; i++) {
     const slice = leftovers.slice(i * MIXED_CAP, (i + 1) * MIXED_CAP);
     if (slice.length < 2) break;
@@ -265,7 +278,10 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
       const p = makeBlock('video_player', vids, 12, {}, '요청과 관련된 영상 한 편을 크게 보여줍니다.');
       if (p) videoBlocks.push(p);
     } else {
-      const playerCount = Math.min(6, Math.ceil(vids.length / 2));
+      // Without a queue the player holds the whole anchor, so no video is lost.
+      const playerCount = isComponentExcluded('video_queue')
+        ? vids.length
+        : Math.min(6, Math.ceil(vids.length / 2));
       const queueCap = mix.video === 'more' ? 12 : 6;
       const p = makeBlock(
         'video_player',
@@ -294,7 +310,9 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
 
   const headlineBlocks: ComponentBlock[] = [];
   let stripRefs: string[] = [];
-  if (newsPool.length >= 3 && mix.headline !== 'less') {
+  const stripExcluded =
+    isComponentExcluded('headline_strip') || isKindExcluded('headline') || isKindExcluded('article');
+  if (newsPool.length >= 3 && mix.headline !== 'less' && !stripExcluded) {
     const stripCap = mix.headline === 'more' ? 10 : 5;
     stripRefs = newsPool.slice(0, stripCap).map((it) => it.id);
     const s = makeBlock('headline_strip', stripRefs, 12, {}, '여러 소스의 최근 소식을 한 줄로 섞어 훑어봅니다.');
@@ -310,8 +328,10 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   const postBlocks: ComponentBlock[] = [];
   const postRefs = interleaveBySource(remainingByKind.post).map((p) => p.id);
 
-  const hasPosts = postRefs.length > 0;
-  const hasArticles = articleRefs.length > 0;
+  const hasPosts =
+    postRefs.length > 0 && !isComponentExcluded('community_posts') && !isKindExcluded('post');
+  const hasArticles =
+    articleRefs.length > 0 && !isComponentExcluded('article_list') && !isKindExcluded('article');
 
   if (hasArticles) {
     const articleProps: Record<string, unknown> = {
@@ -380,10 +400,17 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   // The body must never read as one list per site or per kind. A saved Recipe
   // shape is the user's explicit choice, so only the planner's own page is
   // held to it. Runs before source_list so provenance reflects the repair.
+  // The repair rebuilds silos as topic_cluster cards, so a user who hard-
+  // rejected topic_cluster keeps the kind sections instead: an exclusion the
+  // repair undid would be no exclusion.
   if (req.recipeShape === undefined) {
-    const mixed = enforceMixedComposition(plan, pool);
-    plan = mixed.plan;
-    issues.push(...mixed.issues);
+    if (clustersExcluded) {
+      issues.push("'topic_cluster'를 제외해서 주제 카드 대신 종류별 섹션으로 구성했습니다.");
+    } else {
+      const mixed = enforceMixedComposition(plan, pool);
+      plan = mixed.plan;
+      issues.push(...mixed.issues);
+    }
   }
 
   // --- source_list (always last) ------------------------------------------

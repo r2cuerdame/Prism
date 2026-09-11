@@ -5,6 +5,8 @@ import type { ComponentBlock, LayoutPlan } from '@shared/domain/layoutPlan';
 import { LayoutPlanSchema } from '@shared/domain/layoutPlan';
 import type { SourceItem, SourceItemKind } from '@shared/domain/sourceItem';
 import { SourceItemSchema } from '@shared/domain/sourceItem';
+import type { InterestProfile, ProfileEntry } from '@shared/preference/interestProfile';
+import { emptyProfile } from '@shared/preference/interestProfile';
 import type { PlanRequest } from './plannerTypes';
 import { heuristicPlan } from './heuristicPlanner';
 import { detectSiloViolations } from './mixInvariants';
@@ -575,5 +577,201 @@ describe('heuristicPlan cross-source synthesis', () => {
     expect(shape(heuristicPlan(reqOf(items)).plan)).toEqual(
       shape(heuristicPlan(reqOf(items)).plan)
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Negative profile exclusions (issue #26)
+// ---------------------------------------------------------------------------
+
+function hardEntry(type: ProfileEntry['type'], value: string): ProfileEntry {
+  return {
+    type,
+    value,
+    score: -1,
+    explicit: true,
+    hard: true,
+    terms: [],
+    signalIds: ['sig_1'],
+    interpretations: []
+  };
+}
+
+function profileWith(over: {
+  components?: string[];
+  kinds?: SourceItemKind[];
+  hard?: boolean;
+}): InterestProfile {
+  const p = emptyProfile('2026-08-19T00:00:00.000Z');
+  const hard = over.hard ?? true;
+  for (const c of over.components ?? []) {
+    p.negative.components.push({ ...hardEntry('component', c), hard });
+  }
+  for (const k of over.kinds ?? []) p.negative.kinds.push({ ...hardEntry('kind', k), hard });
+  p.signalCount = p.negative.components.length + p.negative.kinds.length;
+  return p;
+}
+
+/** A saved shape made of the kind sections, so the planner emits them instead of topic cards. */
+const KIND_SECTION_RECIPE: NonNullable<PlanRequest['recipeShape']> = {
+  name: '종류별 페이지',
+  layoutTemplate: [
+    { componentType: 'video_player', span: 8 },
+    { componentType: 'headline_strip', span: 12 },
+    { componentType: 'article_list', span: 6 },
+    { componentType: 'community_posts', span: 6 }
+  ],
+  density: 'comfortable'
+};
+
+function expectNoRefsOfKind(plan: LayoutPlan, items: SourceItem[], kind: SourceItemKind): void {
+  const ids = new Set(items.filter((it) => it.kind === kind).map((it) => it.id));
+  for (const b of plan.blocks) {
+    for (const r of b.sourceItemRefs) expect(ids.has(r)).toBe(false);
+  }
+}
+
+describe('heuristicPlan negative profile exclusions', () => {
+  it('control: the kind-section recipe page emits every section the exclusions target', () => {
+    const { plan } = heuristicPlan(reqOf(multiSourceItems(), { recipeShape: KIND_SECTION_RECIPE }));
+    const t = types(plan);
+    expect(t).toContain('video_player');
+    expect(t).toContain('headline_strip');
+    expect(t).toContain('article_list');
+    expect(t).toContain('community_posts');
+  });
+
+  it('drops the video anchor when video_player is hard-excluded', () => {
+    const { plan } = heuristicPlan(
+      reqOf(mixedItems(), { profile: profileWith({ components: ['video_player'] }) })
+    );
+    expect(types(plan)).not.toContain('video_player');
+    expect(types(plan)).not.toContain('video_queue');
+  });
+
+  it('drops the video anchor when the video kind is hard-excluded, and shows no video anywhere', () => {
+    const items = multiSourceItems();
+    const { plan } = heuristicPlan(reqOf(items, { profile: profileWith({ kinds: ['video'] }) }));
+    expect(types(plan)).not.toContain('video_player');
+    expect(types(plan)).not.toContain('video_queue');
+    expectNoRefsOfKind(plan, items, 'video');
+  });
+
+  it('keeps the player but drops the queue when only video_queue is hard-excluded, losing no video', () => {
+    const items = mixedItems();
+    const { plan } = heuristicPlan(
+      reqOf(items, { profile: profileWith({ components: ['video_queue'] }) })
+    );
+    expect(types(plan)).toContain('video_player');
+    expect(types(plan)).not.toContain('video_queue');
+    const shown = new Set(plan.blocks.flatMap((b) => b.sourceItemRefs));
+    for (const v of items.filter((it) => it.kind === 'video')) expect(shown.has(v.id)).toBe(true);
+  });
+
+  it('emits no topic_cluster when it is hard-excluded, even after the mix repair', () => {
+    const { plan } = heuristicPlan(
+      reqOf(multiSourceItems(), { profile: profileWith({ components: ['topic_cluster'] }) })
+    );
+    expect(types(plan)).not.toContain('topic_cluster');
+    expect(plan.blocks.length).toBeGreaterThan(1);
+    expectCatalogConstraints(plan);
+  });
+
+  it('emits no headline_strip when it is hard-excluded', () => {
+    const { plan } = heuristicPlan(
+      reqOf(multiSourceItems(), {
+        recipeShape: KIND_SECTION_RECIPE,
+        profile: profileWith({ components: ['headline_strip'] })
+      })
+    );
+    expect(types(plan)).not.toContain('headline_strip');
+    expect(types(plan)).toContain('article_list');
+  });
+
+  it('emits no headline_strip when the headline kind is hard-excluded', () => {
+    const items = multiSourceItems();
+    const { plan } = heuristicPlan(
+      reqOf(items, { recipeShape: KIND_SECTION_RECIPE, profile: profileWith({ kinds: ['headline'] }) })
+    );
+    expect(types(plan)).not.toContain('headline_strip');
+    expectNoRefsOfKind(plan, items, 'headline');
+  });
+
+  it('emits no article_list or headline_strip when the article kind is hard-excluded', () => {
+    const items = multiSourceItems();
+    const { plan } = heuristicPlan(
+      reqOf(items, { recipeShape: KIND_SECTION_RECIPE, profile: profileWith({ kinds: ['article'] }) })
+    );
+    expect(types(plan)).not.toContain('article_list');
+    expect(types(plan)).not.toContain('headline_strip');
+    expectNoRefsOfKind(plan, items, 'article');
+  });
+
+  it('emits no article_list when it is hard-excluded', () => {
+    const { plan } = heuristicPlan(
+      reqOf(multiSourceItems(), {
+        recipeShape: KIND_SECTION_RECIPE,
+        profile: profileWith({ components: ['article_list'] })
+      })
+    );
+    expect(types(plan)).not.toContain('article_list');
+    expect(types(plan)).toContain('headline_strip');
+  });
+
+  it('emits no community_posts when it is hard-excluded', () => {
+    const { plan } = heuristicPlan(
+      reqOf(multiSourceItems(), {
+        recipeShape: KIND_SECTION_RECIPE,
+        profile: profileWith({ components: ['community_posts'] })
+      })
+    );
+    expect(types(plan)).not.toContain('community_posts');
+    expect(types(plan)).toContain('article_list');
+  });
+
+  it('emits no community_posts when the post kind is hard-excluded', () => {
+    const items = multiSourceItems();
+    const { plan } = heuristicPlan(
+      reqOf(items, { recipeShape: KIND_SECTION_RECIPE, profile: profileWith({ kinds: ['post'] }) })
+    );
+    expect(types(plan)).not.toContain('community_posts');
+    expectNoRefsOfKind(plan, items, 'post');
+  });
+
+  it('ignores soft (non-hard) negatives: they downrank, never exclude', () => {
+    const { plan } = heuristicPlan(
+      reqOf(multiSourceItems(), {
+        recipeShape: KIND_SECTION_RECIPE,
+        profile: profileWith({
+          components: ['video_player', 'headline_strip', 'article_list', 'community_posts'],
+          hard: false
+        })
+      })
+    );
+    const t = types(plan);
+    expect(t).toContain('video_player');
+    expect(t).toContain('headline_strip');
+    expect(t).toContain('article_list');
+    expect(t).toContain('community_posts');
+  });
+
+  it('never leaves the page empty when every body component is hard-excluded', () => {
+    const { plan } = heuristicPlan(
+      reqOf(multiSourceItems(), {
+        profile: profileWith({
+          components: [
+            'synthesis_brief',
+            'video_player',
+            'video_queue',
+            'topic_cluster',
+            'headline_strip',
+            'article_list',
+            'community_posts'
+          ]
+        })
+      })
+    );
+    expect(plan.blocks.length).toBeGreaterThanOrEqual(1);
+    expect(LayoutPlanSchema.safeParse(plan).success).toBe(true);
   });
 });
