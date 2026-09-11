@@ -7,6 +7,7 @@ import type {
   SourceAdapter,
   SourceRequest
 } from '../types';
+import { fetchTargetsInterleaved } from './fanOut';
 
 export interface SubRegistryEntry {
   sub: string;
@@ -144,32 +145,17 @@ export const redditAdapter: SourceAdapter = {
     if ([...topics].some((t) => registryTopics.has(t))) score += 0.2;
     return Math.min(1, score);
   },
-  async fetchItems(req: SourceRequest, ctx: AdapterContext): Promise<AdapterResult> {
-    const items: SourceItem[] = [];
-    const provenance: Provenance[] = [];
-    const errors: string[] = [];
-    for (const entry of selectSubs(req)) {
-      try {
-        const json = await ctx.http.getJson(
-          subHotUrl(entry.sub, Math.max(1, Math.min(req.limit, 25)))
-        );
-        const r = normalizeReddit(json, { sub: entry.sub }, ctx.now());
-        items.push(...r.items);
-        provenance.push(...r.provenance);
-        errors.push(...r.errors);
-      } catch (e) {
-        // Reddit blocks unauthenticated clients often (403) — expected, degrade gracefully.
-        errors.push(
-          `r/${entry.sub}: 요청 실패 (${e instanceof Error ? e.message : String(e)})`
-        );
-      }
-    }
-    const kept = items.slice(0, req.limit);
-    const refs = new Set(kept.map((i) => i.provenanceRef));
-    return {
-      items: kept,
-      provenance: provenance.filter((p) => refs.has(p.id)),
-      errors
-    };
+  fetchItems(req: SourceRequest, ctx: AdapterContext): Promise<AdapterResult> {
+    const perSub = Math.max(1, Math.min(req.limit, 25));
+    return fetchTargetsInterleaved(
+      selectSubs(req),
+      async (entry) => {
+        const json = await ctx.http.getJson(subHotUrl(entry.sub, perSub));
+        return normalizeReddit(json, { sub: entry.sub }, ctx.now());
+      },
+      // Reddit blocks unauthenticated clients often (403) — expected, degrade gracefully.
+      (entry, e) => `r/${entry.sub}: 요청 실패 (${e instanceof Error ? e.message : String(e)})`,
+      req.limit
+    );
   }
 };
