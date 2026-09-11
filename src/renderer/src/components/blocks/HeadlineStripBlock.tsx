@@ -6,8 +6,10 @@ import './videoBlocks.css';
 export default function HeadlineStripBlock({
   block,
   items,
+  onRejectItem,
   onOpenOriginal,
-  onInspect
+  onInspect,
+  dispatch
 }: BlockRenderProps): ReactElement | null {
   const headlines = items.filter((i) => i.kind === 'headline' || i.kind === 'article');
   if (headlines.length < 3) return null;
@@ -21,7 +23,14 @@ export default function HeadlineStripBlock({
     <div className="gv-headline-strip">
       <div className="gv-headline-scroll">
         {visible.map((item) => (
-          <div key={item.id} className="gv-headline-card">
+          <div
+            key={item.id}
+            className="gv-headline-card"
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onRejectItem ? onRejectItem(item.id) : dispatch?.({ type: 'remove_item', itemId: item.id });
+            }}
+          >
             <div className="gv-item-chips">
               <button
                 type="button"
@@ -39,6 +48,18 @@ export default function HeadlineStripBlock({
                 }}
               >
                 원본
+              </button>
+              <button
+                type="button"
+                className="gv-reject-item"
+                aria-label={`${item.title} 거부`}
+                title="이 항목 거부"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRejectItem ? onRejectItem(item.id) : dispatch?.({ type: 'remove_item', itemId: item.id });
+                }}
+              >
+                ✕
               </button>
             </div>
             <div className="gv-headline-title">{item.title}</div>

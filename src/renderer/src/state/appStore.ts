@@ -110,7 +110,7 @@ const initialState: AppState = {
   toast: null
 };
 
-class AppStore {
+export class AppStore {
   private state: AppState = initialState;
   private listeners = new Set<Listener>();
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -165,7 +165,8 @@ class AppStore {
     const act = this.active();
     if (!act) return;
     const item = act.entry.history.present.items[itemId];
-    const title = item ? `"${item.title.slice(0, 20)}"` : '항목';
+    if (!item) return;
+    const title = `"${item.title.slice(0, 20)}"`;
     this.dispatch({ type: 'remove_item', itemId });
     this.toast(`${title}을(를) 거부했어요. 선호에 반영됩니다. (Ctrl+Z로 실행 취소)`);
   }

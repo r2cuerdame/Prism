@@ -14,6 +14,8 @@ export interface BlockRenderProps {
   /** Items resolved from block.sourceItemRefs, in ref order. */
   items: SourceItem[];
   dispatch: (cmd: SessionCommand) => void;
+  /** Reject an item through the store so feedback and preference inference run. */
+  onRejectItem?: (itemId: string) => void;
   onOpenOriginal: (url: string) => void;
   /** Open the provenance/inspection panel for this block. */
   onInspect: (blockId: string) => void;

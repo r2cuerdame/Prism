@@ -43,6 +43,28 @@
   border-color: var(--gv-accent);
 }
 
+.gv-reject-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--gv-text-dim);
+  cursor: pointer;
+}
+
+.gv-reject-item:hover,
+.gv-reject-item:focus-visible {
+  border-color: #d66;
+  color: #c44;
+  background: color-mix(in srgb, #c44 10%, transparent);
+}
+
 /* --- video_player --- */
 
 .gv-video-player {

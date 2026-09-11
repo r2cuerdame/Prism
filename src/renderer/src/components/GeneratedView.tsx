@@ -22,6 +22,7 @@ interface GeneratedViewProps {
   onOpenOriginal: (url: string) => void;
   onInspect: (blockId: string) => void;
   onRegenerateBlock: (blockId: string) => void;
+  onRejectItem?: (itemId: string) => void;
 }
 
 interface DropTarget {
@@ -140,6 +141,7 @@ export default function GeneratedView(props: GeneratedViewProps): ReactElement |
                     block={block}
                     items={items}
                     dispatch={dispatch}
+                    onRejectItem={props.onRejectItem}
                     onOpenOriginal={props.onOpenOriginal}
                     onInspect={props.onInspect}
                   />

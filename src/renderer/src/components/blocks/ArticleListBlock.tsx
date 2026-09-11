@@ -13,6 +13,7 @@ function formatDate(iso: string | undefined): string | null {
 export default function ArticleListBlock({
   block,
   items,
+  onRejectItem,
   onOpenOriginal,
   onInspect,
   dispatch
@@ -42,7 +43,7 @@ export default function ArticleListBlock({
             className="gv-article-row"
             onContextMenu={(e) => {
               e.preventDefault();
-              dispatch?.({ type: 'remove_item', itemId: item.id });
+              onRejectItem ? onRejectItem(item.id) : dispatch?.({ type: 'remove_item', itemId: item.id });
             }}
           >
             {thumb ? (
@@ -82,12 +83,12 @@ export default function ArticleListBlock({
                 </button>
                 <button
                   type="button"
-                  className="gv-article-remove"
+                  className="gv-reject-item gv-article-remove"
                   title="이 항목 거부 (다시 보지 않기)"
-                  aria-label="이 항목 거부"
+                  aria-label={`${item.title} 거부`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    dispatch?.({ type: 'remove_item', itemId: item.id });
+                    onRejectItem ? onRejectItem(item.id) : dispatch?.({ type: 'remove_item', itemId: item.id });
                   }}
                 >
                   ✕
