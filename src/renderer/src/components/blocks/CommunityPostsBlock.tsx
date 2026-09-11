@@ -7,8 +7,10 @@ import './contentBlocks.css';
 export default function CommunityPostsBlock({
   block,
   items,
+  onRejectItem,
   onOpenOriginal,
-  onInspect
+  onInspect,
+  dispatch
 }: BlockRenderProps): ReactElement {
   const p = block.props;
   const showMeta = typeof p.showMeta === 'boolean' ? p.showMeta : true;
@@ -23,7 +25,14 @@ export default function CommunityPostsBlock({
       {visible.map((item) => {
         const payload = getPostPayload(item);
         return (
-          <div key={item.id} className="gv-post-row">
+          <div
+            key={item.id}
+            className="gv-post-row"
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onRejectItem ? onRejectItem(item.id) : dispatch?.({ type: 'remove_item', itemId: item.id });
+            }}
+          >
             <h4 className="gv-post-title">{item.title}</h4>
             <div className="gv-post-meta">
               <button
@@ -61,6 +70,18 @@ export default function CommunityPostsBlock({
                 }}
               >
                 원본
+              </button>
+              <button
+                type="button"
+                className="gv-reject-item"
+                aria-label={`${item.title} 거부`}
+                title="이 항목 거부"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRejectItem ? onRejectItem(item.id) : dispatch?.({ type: 'remove_item', itemId: item.id });
+                }}
+              >
+                ✕
               </button>
             </div>
           </div>

@@ -79,6 +79,7 @@ export default function App(): ReactElement {
               <GeneratedView
                 state={session}
                 dispatch={(cmd) => appStore.dispatch(cmd)}
+                onRejectItem={(itemId) => appStore.rejectItem(itemId)}
                 onOpenOriginal={(url) => appStore.openOriginal(url)}
                 onInspect={(blockId) => appStore.openPanel('inspect', blockId)}
                 onRegenerateBlock={(blockId) => void appStore.regenerateBlock(blockId)}

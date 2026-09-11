@@ -8,6 +8,7 @@ export default function VideoQueueBlock({
   block,
   items,
   dispatch,
+  onRejectItem,
   onOpenOriginal,
   onInspect
 }: BlockRenderProps): ReactElement | null {
@@ -27,7 +28,14 @@ export default function VideoQueueBlock({
         {visible.map((item) => {
           const channel = getVideoPayload(item)?.channel;
           return (
-            <li key={item.id} className="gv-video-queue-row">
+            <li
+              key={item.id}
+              className="gv-video-queue-row"
+              onContextMenu={(event) => {
+                event.preventDefault();
+                onRejectItem ? onRejectItem(item.id) : dispatch({ type: 'remove_item', itemId: item.id });
+              }}
+            >
               <button
                 type="button"
                 className="gv-video-queue-main"
@@ -69,6 +77,18 @@ export default function VideoQueueBlock({
                   }}
                 >
                   원본
+                </button>
+                <button
+                  type="button"
+                  className="gv-reject-item"
+                  aria-label={`${item.title} 거부`}
+                  title="이 항목 거부"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRejectItem ? onRejectItem(item.id) : dispatch({ type: 'remove_item', itemId: item.id });
+                  }}
+                >
+                  ✕
                 </button>
               </div>
             </li>

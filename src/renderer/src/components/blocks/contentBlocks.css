@@ -291,3 +291,25 @@
   border-top: 1px solid var(--gv-border, #d7dae0);
   margin: 8px 0;
 }
+
+.gv-reject-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--gv-text-muted, #8a8f98);
+  cursor: pointer;
+}
+
+.gv-reject-item:hover,
+.gv-reject-item:focus-visible {
+  border-color: #d66;
+  color: #c44;
+  background: color-mix(in srgb, #c44 10%, transparent);
+}

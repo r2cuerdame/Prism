@@ -15,7 +15,7 @@ const KIND_LABELS: Record<SourceItem['kind'], string> = {
 
 /** One topic covered by several different sources, gathered into one card. */
 export default function TopicClusterBlock(props: BlockRenderProps): ReactElement | null {
-  const { block, items, dispatch, onOpenOriginal, onInspect } = props;
+  const { block, items, dispatch, onRejectItem, onOpenOriginal, onInspect } = props;
 
   // Planner props are LLM output — narrow at runtime; catalog `topic_cluster`
   // requires a heading and minItems 2, fallback 'hide'.
@@ -70,7 +70,7 @@ export default function TopicClusterBlock(props: BlockRenderProps): ReactElement
               className="gv-tc-row"
               onContextMenu={(e) => {
                 e.preventDefault();
-                dispatch({ type: 'remove_item', itemId: item.id });
+                onRejectItem ? onRejectItem(item.id) : dispatch({ type: 'remove_item', itemId: item.id });
               }}
             >
                 {thumb ? (
@@ -128,12 +128,12 @@ export default function TopicClusterBlock(props: BlockRenderProps): ReactElement
                     </button>
                     <button
                       type="button"
-                      className="gv-tc-remove"
+                      className="gv-reject-item gv-tc-remove"
                       title="이 항목 거부 (다시 보지 않기)"
-                      aria-label="이 항목 거부"
+                      aria-label={`${item.title} 거부`}
                       onClick={(e) => {
                         e.stopPropagation();
-                        dispatch({ type: 'remove_item', itemId: item.id });
+                        onRejectItem ? onRejectItem(item.id) : dispatch({ type: 'remove_item', itemId: item.id });
                       }}
                     >
                       ✕
