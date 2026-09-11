@@ -214,6 +214,12 @@ export function interleaveBySource<T extends { sourceName: string }>(items: T[])
     }
     bucket.push(it);
   }
+  // Sort buckets by size descending so minority sources interleave inside
+  // majority runs, preventing all items of a source from bunching together.
+  order.sort((a, b) => {
+    const diff = (buckets.get(b)?.length ?? 0) - (buckets.get(a)?.length ?? 0);
+    return diff;
+  });
   const out: T[] = [];
   for (let round = 0; out.length < items.length; round++) {
     for (const name of order) {

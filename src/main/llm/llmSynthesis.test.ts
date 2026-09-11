@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { LayoutPlan } from '@shared/domain/layoutPlan';
 import type { SourceItem } from '@shared/domain/sourceItem';
-import type { CodexRunner } from './codexRunner';
+import type { LlmRunner } from './llmRunner';
 import { refreshSynthesisLlm } from './llmSynthesis';
 
 function item(id: string, title: string, sourceName: string): SourceItem {
@@ -75,8 +75,8 @@ const ITEMS = [
   item('f', '무관한 기사', 'BBC')
 ];
 
-function runnerReturning(value: unknown): CodexRunner {
-  return { ready: true, run: vi.fn().mockResolvedValue(value) };
+function runnerReturning(value: unknown): LlmRunner {
+  return { ready: true, provider: 'codex', model: 'test', run: vi.fn().mockResolvedValue(value) };
 }
 
 describe('refreshSynthesisLlm', () => {

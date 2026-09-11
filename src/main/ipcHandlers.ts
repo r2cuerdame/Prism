@@ -1,4 +1,4 @@
-﻿import { app, ipcMain, shell, type BrowserWindow } from 'electron';
+import { app, ipcMain, shell, type BrowserWindow } from 'electron';
 import { join } from 'path';
 import { z } from 'zod';
 import {
@@ -39,7 +39,10 @@ import { createRecipeStore } from './store/recipeStore';
 import { createPreferenceStore } from './store/preferenceStore';
 import { createSessionArchive } from './store/sessionArchive';
 import { createSettingsStore } from './store/settingsStore';
-import { createCodexRunner, type CodexRunner } from './llm/codexRunner';
+import { createCodexRunner } from './llm/codexRunner';
+import { createAgyRunner } from './llm/agyRunner';
+import { detectAgy } from './llm/agyStatus';
+import type { LlmRunner } from './llm/llmRunner';
 import { detectAuth, runOauthLogin } from './llm/gptAuth';
 import { interpretIntentLlm } from './llm/llmIntent';
 import { planLayoutLlm } from './llm/llmPlanner';
@@ -47,6 +50,11 @@ import { refreshSynthesisLlm } from './llm/llmSynthesis';
 import { interpretEditLlm } from './llm/llmEditor';
 import { openOriginalWindow, isSafeHttpUrl } from './originalViewer';
 import { createUpdater, type UpdaterHandle } from './updater';
+import { createSourceRuntime } from './sources/runtime/electronSourceRuntime';
+import { createElectronPageFactory } from './sources/runtime/electronSourcePage';
+import type { SourceRuntime } from './sources/runtime/types';
+import { SourceActionRequestSchema, type SourceActionResult } from '@shared/domain/projection';
+import { createAuthRailManager } from './auth/authRailManager';
 
 /**
  * Renderer payload schemas. The renderer is a trust boundary like any other —
@@ -138,8 +146,28 @@ export interface MainServices {
   updater: UpdaterHandle;
 }
 
+export async function handleSourceAction(
+  sourceRuntime: Pick<SourceRuntime, 'routeAction'>,
+  raw: unknown
+): Promise<SourceActionResult> {
+  const parsed = SourceActionRequestSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, sourceId: '', actionId: '', error: '잘못된 액션 요청이에요.' };
+  }
+  return sourceRuntime.routeAction(parsed.data);
+}
+
+/**
+ * Production wiring for the source runtime. Exported so the default wiring is
+ * testable without standing up the whole IPC surface, which needs a real
+ * userData path and four on-disk stores.
+ */
+export function createMainSourceRuntime(): SourceRuntime {
+  return createSourceRuntime({ pageFactory: createElectronPageFactory() });
+}
+
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): MainServices {
-  const dataDir = join(app.getPath('userData'), 'gptbrowser');
+  const dataDir = join(app.getPath('userData'), 'prism');
   const recipes = createRecipeStore(dataDir);
   const prefs = createPreferenceStore(dataDir);
   const archive = createSessionArchive(dataDir);
@@ -152,15 +180,28 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
   };
   const progress = (p: GenerateProgress): void => send(IPC.evGenerateProgress, p);
 
-  /** Planning borrows the user's Codex sign-in; the app never holds a key. */
-  const llm = async (): Promise<{ runner: CodexRunner }> => {
+  const sourceRuntime = createMainSourceRuntime();
+  const authRailManager = createAuthRailManager({
+    sourceRuntime,
+    sendToRenderer: send,
+    getParentWindow: getWindow
+  });
+
+  const llm = async (): Promise<{ runner: LlmRunner }> => {
     const s = await settings.get();
+    if (s.llmProvider === 'agy') {
+      const agy = await detectAgy();
+      return {
+        runner: createAgyRunner({
+          ready: agy.ready,
+          model: s.plannerModel === '' ? undefined : s.plannerModel
+        })
+      };
+    }
     const view = await settingsView();
     return {
       runner: createCodexRunner({
         ready: view.authMethod !== 'none',
-        // Spark measured 2.5-3x faster than the CLI's default model with
-        // equivalent page quality; settings.plannerModel still overrides.
         model: s.plannerModel === '' ? 'gpt-5.3-codex-spark' : s.plannerModel
       })
     };
@@ -173,6 +214,18 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
   } | null = null;
   const settingsView = async (forceAuthProbe = false): Promise<SettingsView> => {
     const s = await settings.get();
+    if (s.llmProvider === 'agy') {
+      const agy = await detectAgy();
+      return {
+        authMethod: agy.ready ? 'agy' : 'none',
+        authDetail: agy.detail,
+        llmProvider: s.llmProvider,
+        plannerModel: s.plannerModel,
+        autoUpdate: s.autoUpdate,
+        locale: s.locale,
+        appVersion: app.getVersion()
+      };
+    }
     if (forceAuthProbe || !authCache || Date.now() - authCache.at > 60_000) {
       const detected = await detectAuth(undefined);
       authCache = { method: detected.method, detail: detected.detail, at: Date.now() };
@@ -180,6 +233,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
     return {
       authMethod: authCache.method,
       authDetail: authCache.detail,
+      llmProvider: s.llmProvider,
       plannerModel: s.plannerModel,
       autoUpdate: s.autoUpdate,
       locale: s.locale,
@@ -205,7 +259,14 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
     try {
       const t0 = Date.now();
       const { runner } = await llm();
-      const prefSummary = await prefs.summarizeForPlanner();
+      const profile = await prefs.getProfile({
+        sessionId: req.sessionId,
+        recipeId: req.recipeContext?.recipeId
+      });
+      const prefSummary = await prefs.summarizeForPlanner({
+        sessionId: req.sessionId,
+        recipeId: req.recipeContext?.recipeId
+      });
 
       progress({ sessionId: req.sessionId, phase: 'interpreting' });
       let interpretation: InterpretedIntent | null = null;
@@ -238,7 +299,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
 
       const tInterpreted = Date.now();
       progress({ sessionId: req.sessionId, phase: 'gathering' });
-      const gathered = await gatherSources(interpretation, ADAPTERS, ctx);
+      const gathered = await gatherSources(interpretation, ADAPTERS, ctx, { profile });
       const tGathered = Date.now();
 
       progress({ sessionId: req.sessionId, phase: 'planning' });
@@ -258,6 +319,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
         preserved: { dockedBlocks: req.preserved.dockedBlocks },
         hints: req.hints,
         prefSummary: prefSummary || undefined,
+        profile,
         recipeShape: req.recipeContext
           ? {
               name: req.recipeContext.name,
@@ -435,6 +497,7 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
   ipcMain.handle(IPC.settingsGet, () => settingsView());
   ipcMain.handle(IPC.settingsSet, async (_e, patch: SettingsPatch) => {
     await settings.set({
+      ...(patch.llmProvider !== undefined ? { llmProvider: patch.llmProvider } : {}),
       ...(patch.plannerModel !== undefined ? { plannerModel: patch.plannerModel } : {}),
       ...(patch.autoUpdate !== undefined ? { autoUpdate: patch.autoUpdate } : {}),
       ...(patch.locale !== undefined ? { locale: patch.locale } : {})
@@ -469,6 +532,40 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): Main
   ipcMain.handle(IPC.openExternal, async (_e, url: unknown) => {
     const u = z.string().parse(url);
     if (isSafeHttpUrl(u)) await shell.openExternal(u);
+  });
+
+  // SourceRuntime & AuthRail IPC handlers
+  ipcMain.handle(IPC.sourceAction, async (_e, raw: unknown) => {
+    return handleSourceAction(sourceRuntime, raw);
+  });
+
+  ipcMain.handle(IPC.sourceProject, async (_e, sourceId: unknown) => {
+    const id = z.string().parse(sourceId);
+    return sourceRuntime.projectSemantic(id);
+  });
+
+  ipcMain.handle(IPC.authRailOpen, (_e, req: unknown) => {
+    const parsed = z
+      .object({
+        sourceId: z.string(),
+        origin: z.string().optional(),
+        loginUrl: z.string().optional(),
+        title: z.string().optional()
+      })
+      .parse(req);
+    return authRailManager.openRail(parsed);
+  });
+
+  ipcMain.handle(IPC.authRailClose, (_e, sourceId: unknown) => {
+    authRailManager.closeRail(z.string().parse(sourceId));
+  });
+
+  ipcMain.handle(IPC.authRailComplete, (_e, sourceId: unknown) => {
+    return authRailManager.completeAuth(z.string().parse(sourceId));
+  });
+
+  ipcMain.handle(IPC.authRailLaunchSurface, (_e, sourceId: unknown) => {
+    authRailManager.launchLoginSurface(z.string().parse(sourceId));
   });
 
   return { updater };

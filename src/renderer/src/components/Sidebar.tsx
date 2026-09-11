@@ -2,8 +2,9 @@ import { useState, type ReactElement } from 'react';
 import { appStore, useAppState } from '@renderer/state/appStore';
 
 /**
- * ChatGPT-style left sidebar — but these are Sessions (generated spaces
- * around an intent) and Recipes (living bookmarks), not tabs and history.
+ * ChatGPT-style left column: a history of topics (Sessions — generated spaces
+ * around an intent) and, below, Recipes (living bookmarks). There are no tabs
+ * and no address bar anywhere in the shell; this list IS the navigation.
  */
 export default function Sidebar(): ReactElement {
   const state = useAppState();
@@ -21,18 +22,18 @@ export default function Sidebar(): ReactElement {
   };
 
   return (
-    <aside className="sidebar">
-      <div className="brand" title="Generated Personal Territory Browser">
-        <span className="brand-mark">◍</span> GPTBrowser
+    <aside className="sidebar" data-testid="prism-sidebar">
+      <div className="brand" title="Prism — Intent to One Page" data-testid="prism-brand">
+        <span className="brand-mark">◭</span> Prism
       </div>
 
-      <button className="sidebar-new" onClick={() => appStore.newSession()}>
-        ＋ 새 세션
+      <button className="sidebar-new" data-testid="new-session" onClick={() => appStore.newSession()}>
+        ＋ 새 주제
       </button>
 
       <div className="sidebar-section">
-        <div className="sidebar-label">세션</div>
-        <div className="sidebar-sessions">
+        <div className="sidebar-label">주제 히스토리</div>
+        <div className="sidebar-sessions" data-testid="session-list">
           {state.order.map((id) => {
             const entry = state.sessions[id];
             if (!entry) return null;
@@ -53,7 +54,7 @@ export default function Sidebar(): ReactElement {
                 <span className="sidebar-session-title">{s.title}</span>
                 <button
                   className="sidebar-session-close"
-                  aria-label="세션 닫기"
+                  aria-label="주제 닫기"
                   onClick={(e) => {
                     e.stopPropagation();
                     appStore.closeSession(id);

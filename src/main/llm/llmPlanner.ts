@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { newId, nowIso } from '@shared/domain/ids';
-import type { CodexRunner } from './codexRunner';
+import type { LlmRunner } from './llmRunner';
 import { catalogForPlanner } from '@shared/catalog/catalog';
 import { getPostPayload } from '@shared/domain/sourceItem';
 import type { PlanRequest, PlanResult } from '@shared/planner/plannerTypes';
@@ -55,7 +55,7 @@ const LlmPlanSchema = z.object({
   blocks: z.array(LlmBlockSchema)
 });
 
-const SYSTEM = `You are the layout planner of GPTBrowser. You compose ONE new page for the user's current intent out of items gathered from many sources. You are NOT building a feed reader and NOT a search results page.
+const SYSTEM = `You are the layout planner of Prism. You compose ONE new page for the user's current intent out of items gathered from many sources. You are NOT building a feed reader and NOT a search results page.
 
 THE ONE RULE THAT MATTERS: the page is organized BY TOPIC, never by section. Two failures to avoid, both fatal even when every block is individually fine:
  (a) one section per website ("here is the Hacker News list, here is the newspaper list"),
@@ -78,8 +78,16 @@ Other rules:
 - Write everything user-visible in Korean (pageTitle, block titles, synthesis points, topic/angle, rationale). Prefer quality over quantity.
 - If items are sparse, compose a smaller good page; if empty, one 'text' block explaining that in Korean.`;
 
-function itemDigest(req: PlanRequest): unknown[] {
-  return req.items.map((i) => {
+/**
+ * The prompt travels as one CLI argument, and Windows caps argv near 32K
+ * characters. The digest therefore has a budget: summaries shrink first, then
+ * the tail of the item list — deterministic, so the same gather yields the
+ * same prompt.
+ */
+export const DIGEST_BUDGET_CHARS = 22_000;
+
+function digestWith(items: PlanRequest['items'], summaryChars: number): unknown[] {
+  return items.map((i) => {
     const post = getPostPayload(i);
     return {
       id: i.id,
@@ -88,11 +96,26 @@ function itemDigest(req: PlanRequest): unknown[] {
       // Synthesis is written from these two fields, so give the model enough
       // to say something true about the item.
       source: i.sourceName,
-      summary: i.summary?.slice(0, 280),
+      summary: summaryChars > 0 ? i.summary?.slice(0, summaryChars) : undefined,
       publishedAt: i.publishedAt,
       ...(post ? { points: post.points, comments: post.commentCount } : {})
     };
   });
+}
+
+export function itemDigest(req: PlanRequest, budget = DIGEST_BUDGET_CHARS): unknown[] {
+  const size = (d: unknown[]): number => JSON.stringify(d).length;
+  let items = req.items;
+  for (const chars of [280, 160, 80, 0]) {
+    const digest = digestWith(items, chars);
+    if (size(digest) <= budget) return digest;
+  }
+  while (items.length > 4) {
+    items = items.slice(0, items.length - 4);
+    const digest = digestWith(items, 0);
+    if (size(digest) <= budget) return digest;
+  }
+  return digestWith(items, 0);
 }
 
 function propsFor(b: z.infer<typeof LlmBlockSchema>): Record<string, unknown> {
@@ -133,7 +156,7 @@ const strip = (o: Record<string, unknown>): Record<string, unknown> =>
   Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null));
 
 export async function planLayoutLlm(
-  runner: CodexRunner,
+  runner: LlmRunner,
   req: PlanRequest
 ): Promise<(PlanResult & { pageTitle?: string }) | null> {
   try {
@@ -179,8 +202,7 @@ export async function planLayoutLlm(
       },
       plannerMetadata: {
         planner: 'llm' as const,
-        // The Codex CLI owns the model choice; the app never names one.
-        model: 'codex',
+        model: runner.model !== '' ? `${runner.provider}:${runner.model}` : runner.provider,
         promptVersion: 'v1',
         generatedAt: nowIso(),
         diagnostics: []

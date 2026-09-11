@@ -3,6 +3,7 @@ import {
   IPC,
   type GenerateProgress,
   type GptbApi,
+  type SafeAuthRailState,
   type UpdaterStatus
 } from '@shared/ipc';
 
@@ -35,8 +36,16 @@ const api: GptbApi = {
   updaterInstall: () => ipcRenderer.invoke(IPC.updaterInstall),
   openOriginal: (url) => ipcRenderer.invoke(IPC.openOriginal, url),
   openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url),
+  sourceAction: (req) => ipcRenderer.invoke(IPC.sourceAction, req),
+  sourceProject: (sourceId) => ipcRenderer.invoke(IPC.sourceProject, sourceId),
+  authRailOpen: (req) => ipcRenderer.invoke(IPC.authRailOpen, req),
+  authRailClose: (sourceId) => ipcRenderer.invoke(IPC.authRailClose, sourceId),
+  authRailComplete: (sourceId) => ipcRenderer.invoke(IPC.authRailComplete, sourceId),
+  authRailLaunchSurface: (sourceId) => ipcRenderer.invoke(IPC.authRailLaunchSurface, sourceId),
+  onAuthRailState: subscribe<SafeAuthRailState | null>(IPC.evAuthRailState),
   onGenerateProgress: subscribe<GenerateProgress>(IPC.evGenerateProgress),
   onUpdaterStatus: subscribe<UpdaterStatus>(IPC.evUpdaterStatus)
 };
 
+contextBridge.exposeInMainWorld('prism', api);
 contextBridge.exposeInMainWorld('gptb', api);

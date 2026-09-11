@@ -2,35 +2,62 @@ import type { ReactElement } from 'react';
 import { appStore, useAppState } from '@renderer/state/appStore';
 
 const AUTH_LABEL: Record<string, string> = {
+  agy: 'AGY CLI 사용 가능 — 합성 플래너 켜짐',
   'api-key': '로그인됨 (API 키)',
   'env-key': '로그인됨 (환경 변수)',
   oauth: 'Codex 계정으로 로그인됨',
-  none: '로그인 안 됨 — 오프라인 구성으로 동작 중'
+  none: '오프라인 구성으로 동작 중'
 };
 
+/**
+ * Settings: which planner runs (AGY by default, Codex as the optional legacy
+ * path), updates and language. There is no API key field anywhere — the app
+ * borrows a CLI's own account and never holds a credential itself.
+ */
 export default function SettingsPanel(): ReactElement {
   const state = useAppState();
   const s = state.settings;
 
   if (!s) return <p className="panel-note">설정을 불러오는 중…</p>;
 
+  const provider = s.llmProvider ?? 'agy';
+  const modelShown = s.plannerModel !== '' ? s.plannerModel : provider === 'agy' ? 'gemini-3.8-flash-medium' : '(Codex 기본값)';
+
   return (
     <div className="settings-panel">
-      <h4>계정</h4>
-      <p className={`auth-status auth-status--${s.authMethod}`}>
-        {s.authMethod === 'none' ? '○' : '●'} {AUTH_LABEL[s.authMethod]}
+      <h4>플래너</h4>
+      <p className={`auth-status auth-status--${s.authMethod}`} data-testid="planner-status">
+        {s.authMethod === 'none' ? '○' : '●'} {AUTH_LABEL[s.authMethod] ?? s.authMethod}
       </p>
       {s.authDetail !== '' && <p className="panel-note">{s.authDetail}</p>}
+      <div className="settings-row">
+        <label>
+          공급자{' '}
+          <select
+            value={provider}
+            aria-label="LLM 공급자"
+            onChange={(e) =>
+              void appStore.saveSettings({ llmProvider: e.target.value === 'codex' ? 'codex' : 'agy' })
+            }
+          >
+            <option value="agy">AGY (Gemini) — 기본</option>
+            <option value="codex">Codex — 레거시</option>
+          </select>
+        </label>
+        <span className="panel-note">모델: {modelShown}</span>
+      </div>
       <p className="panel-note">
-        {s.authMethod === 'none'
-          ? 'Codex 계정으로 로그인하면 여러 소스를 가로질러 합성한 페이지를 만들어요. API 키는 필요 없어요.'
-          : '여러 소스를 가로질러 합성한 페이지를 만들고 있어요.'}
+        {provider === 'agy'
+          ? 'AGY CLI(agy)가 설치돼 있으면 gemini-3.8-flash-medium으로 페이지를 구성해요. 없으면 같은 규칙의 오프라인 휴리스틱 플래너가 대신해요.'
+          : 'Codex CLI의 ChatGPT 계정 로그인을 그대로 써요. 선택적 레거시 경로예요.'}
       </p>
       <div className="settings-row">
-        <button className="auth-login-btn" onClick={() => void appStore.loginOauth()}>
-          {s.authMethod === 'none' ? 'Codex로 로그인' : '다시 로그인'}
-        </button>
-        <button title="로그인 상태 다시 확인" onClick={() => void appStore.refreshAuth()}>
+        {provider === 'codex' && (
+          <button className="auth-login-btn" onClick={() => void appStore.loginOauth()}>
+            {s.authMethod === 'oauth' ? '다시 로그인' : 'Codex로 로그인'}
+          </button>
+        )}
+        <button title="플래너 상태 다시 확인" onClick={() => void appStore.refreshAuth()}>
           상태 새로고침
         </button>
       </div>

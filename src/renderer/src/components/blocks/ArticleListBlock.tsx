@@ -14,7 +14,8 @@ export default function ArticleListBlock({
   block,
   items,
   onOpenOriginal,
-  onInspect
+  onInspect,
+  dispatch
 }: BlockRenderProps): ReactElement {
   const p = block.props;
   const density = p.density === 'compact' ? 'compact' : 'comfortable';
@@ -36,8 +37,15 @@ export default function ArticleListBlock({
         const date = formatDate(item.publishedAt);
         const thumb = item.media?.thumbnailUrl;
         return (
-          <article key={item.id} className="gv-article-card">
-            {density === 'comfortable' && thumb ? (
+          <article
+            key={item.id}
+            className="gv-article-row"
+            onContextMenu={(e) => {
+              e.preventDefault();
+              dispatch?.({ type: 'remove_item', itemId: item.id });
+            }}
+          >
+            {thumb ? (
               <img
                 className="gv-article-thumb"
                 src={thumb}
@@ -71,6 +79,18 @@ export default function ArticleListBlock({
                   }}
                 >
                   원본
+                </button>
+                <button
+                  type="button"
+                  className="gv-article-remove"
+                  title="이 항목 거부 (다시 보지 않기)"
+                  aria-label="이 항목 거부"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    dispatch?.({ type: 'remove_item', itemId: item.id });
+                  }}
+                >
+                  ✕
                 </button>
               </div>
             </div>

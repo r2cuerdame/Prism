@@ -3,6 +3,7 @@ import type { ComponentBlock, LayoutPlan } from '../domain/layoutPlan';
 import type { SourceItem } from '../domain/sourceItem';
 import type { CompositionHints } from '../domain/session';
 import type { RecipeLayoutSlot } from '../domain/recipe';
+import type { InterestProfile } from '../preference/interestProfile';
 
 export type { InterpretedIntent };
 
@@ -16,6 +17,8 @@ export interface PlanRequest {
   hints: CompositionHints;
   /** Short human-readable summary of learned preferences, if any. */
   prefSummary?: string;
+  /** Structured interest profile, if available. */
+  profile?: InterestProfile;
   /** Saved Recipe shape to follow when regenerating from a Recipe. */
   recipeShape?: {
     name: string;

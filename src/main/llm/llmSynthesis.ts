@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { LayoutPlan } from '@shared/domain/layoutPlan';
 import type { SourceItem } from '@shared/domain/sourceItem';
-import type { CodexRunner } from './codexRunner';
+import type { LlmRunner } from './llmRunner';
 
 /** Strict structured outputs: every field required, "n/a" expressed as null. */
 const LlmSynthesisSchema = z.object({
@@ -16,7 +16,7 @@ const LlmSynthesisSchema = z.object({
   )
 });
 
-const SYSTEM = `You refresh ONLY the synthesis text of an already-composed GPTBrowser page whose slots were just refilled with fresh items. The layout is fixed — you rewrite words, never structure. For each input block (identified by its index):
+const SYSTEM = `You refresh ONLY the synthesis text of an already-composed Prism page whose slots were just refilled with fresh items. The layout is fixed — you rewrite words, never structure. For each input block (identified by its index):
 - synthesis_brief: write 2-5 Korean bullets (points) saying what its fresh items collectively show — themes, what several sources agree on, what differs, what is new. Each bullet cites the items it came from: cites = the given "n" values of that block's items. Bullets about overlap must cite items from DIFFERENT sources. Never write a bullet that just restates one item's headline.
 - topic_cluster: topic = one short Korean phrase naming the thread its items share; angle = one short Korean line on what differs between the sources.
 Ground everything in the given titles/summaries. Do not assert facts they do not support; when unsure, describe the coverage ("여러 소스가 …를 다뤄요") rather than the claim. Return one entry per input block, echoing its index; use null for fields that do not apply to that block type.`;
@@ -28,7 +28,7 @@ Ground everything in the given titles/summaries. Do not assert facts they do not
  * text, which is always present.
  */
 export async function refreshSynthesisLlm(
-  runner: CodexRunner,
+  runner: LlmRunner,
   plan: LayoutPlan,
   items: SourceItem[],
   goal: string

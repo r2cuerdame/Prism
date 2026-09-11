@@ -8,6 +8,7 @@ import {
   interleaveBySource,
   type TopicCluster
 } from './crossSource';
+import { enforceMixedComposition } from './mixInvariants';
 import type { PlanRequest, PlanResult } from './plannerTypes';
 
 const KINDS: readonly SourceItemKind[] = ['video', 'article', 'post', 'headline'];
@@ -147,13 +148,19 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   const pool = available.filter((it) => keptIds.has(it.id));
   const distinctSources = new Set(pool.map((it) => it.sourceName));
 
+  const profile = req.profile;
+  const isComponentExcluded = (compType: string): boolean =>
+    profile?.negative.components.some((c) => c.hard && c.value === compType) ?? false;
+  const isKindExcluded = (kind: SourceItemKind): boolean =>
+    profile?.negative.kinds.some((k) => k.hard && k.value === kind) ?? false;
+
   // --- synthesis opener ---------------------------------------------------
   // Citing an item does not consume it: a bullet about an article and the
   // article's own card are different things, so the body still shows it.
   const crossBlocks: ComponentBlock[] = [];
   const openerClusters = clusterByTopic(pool);
 
-  if (pool.length >= 2 && distinctSources.size >= 2) {
+  if (!isComponentExcluded('synthesis_brief') && pool.length >= 2 && distinctSources.size >= 2) {
     const synth = buildSynthesisPoints(pool, openerClusters);
     if (synth.points.length > 0 && synth.citedItems.length >= 2) {
       const brief = makeBlock(
@@ -172,8 +179,10 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   // small so the body stays topic-driven rather than kind-driven.
   const ANCHOR_VIDEO_CAP = 6;
   const anchorUsed = new Set<string>();
+  const skipVideoAnchor =
+    mix.video === 'less' || isComponentExcluded('media_strip') || isKindExcluded('video');
   const anchorVideos =
-    mix.video === 'less' ? [] : interleaveBySource(byKind.video).slice(0, ANCHOR_VIDEO_CAP);
+    skipVideoAnchor ? [] : interleaveBySource(byKind.video).slice(0, ANCHOR_VIDEO_CAP);
   for (const v of anchorVideos) anchorUsed.add(v.id);
 
   // Everything the anchor did not take is composed BY TOPIC, across kinds and
@@ -353,30 +362,7 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   // --- Recipe shape: preferred section order/spans ------------------------
   if (req.recipeShape) blocks = applyRecipeShape(blocks, req.recipeShape);
 
-  // --- source_list (always last) ------------------------------------------
-  const usedRefs: string[] = [];
-  for (const b of blocks) {
-    for (const r of b.sourceItemRefs) if (!usedRefs.includes(r)) usedRefs.push(r);
-  }
-  if (usedRefs.length > 0) {
-    const src = makeBlock('source_list', usedRefs, 12, {}, '이 페이지를 구성한 모든 출처입니다.');
-    if (src) blocks.push(src);
-  }
-
-  // --- guarantee at least one block ---------------------------------------
-  if (blocks.length === 0) {
-    const empty = makeBlock(
-      'text',
-      [],
-      12,
-      { text: '아직 가져온 콘텐츠가 없어요. 의도를 조금 더 구체적으로 입력해 보세요.' },
-      '표시할 콘텐츠가 없어 안내 문구를 보여줍니다.'
-    );
-    if (empty) blocks.push(empty);
-    if (req.items.length === 0) issues.push('사용 가능한 소스 아이템이 없습니다.');
-  }
-
-  const plan: LayoutPlan = {
+  let plan: LayoutPlan = {
     id: newId('plan'),
     version: 1,
     sessionId: req.sessionId,
@@ -389,6 +375,39 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
       diagnostics: []
     }
   };
+
+  // --- mixed-composition invariant ----------------------------------------
+  // The body must never read as one list per site or per kind. A saved Recipe
+  // shape is the user's explicit choice, so only the planner's own page is
+  // held to it. Runs before source_list so provenance reflects the repair.
+  if (req.recipeShape === undefined) {
+    const mixed = enforceMixedComposition(plan, pool);
+    plan = mixed.plan;
+    issues.push(...mixed.issues);
+  }
+
+  // --- source_list (always last) ------------------------------------------
+  const usedRefs: string[] = [];
+  for (const b of plan.blocks) {
+    for (const r of b.sourceItemRefs) if (!usedRefs.includes(r)) usedRefs.push(r);
+  }
+  if (usedRefs.length > 0) {
+    const src = makeBlock('source_list', usedRefs, 12, {}, '이 페이지를 구성한 모든 출처입니다.');
+    if (src) plan.blocks.push(src);
+  }
+
+  // --- guarantee at least one block ---------------------------------------
+  if (plan.blocks.length === 0) {
+    const empty = makeBlock(
+      'text',
+      [],
+      12,
+      { text: '아직 가져온 콘텐츠가 없어요. 의도를 조금 더 구체적으로 입력해 보세요.' },
+      '표시할 콘텐츠가 없어 안내 문구를 보여줍니다.'
+    );
+    if (empty) plan.blocks.push(empty);
+    if (req.items.length === 0) issues.push('사용 가능한 소스 아이템이 없습니다.');
+  }
 
   return { plan, issues };
 }

@@ -1,7 +1,7 @@
 ﻿import { z } from 'zod';
 import { SessionCommandSchema, type SessionCommand } from '@shared/domain/commands';
 import type { SessionDigest } from '@shared/ipc';
-import type { CodexRunner } from './codexRunner';
+import type { LlmRunner } from './llmRunner';
 
 /** Strict structured outputs: every field required, "n/a" expressed as null. */
 const LlmEditCommandSchema = z.object({
@@ -32,7 +32,7 @@ const LlmEditSchema = z.object({
   explanation: z.string()
 });
 
-const SYSTEM = `You translate a natural-language edit request into structural commands for GPTBrowser's generated page. The user's words and direct manipulation share ONE state — your commands are the same ones drag/resize/remove use.
+const SYSTEM = `You translate a natural-language edit request into structural commands for Prism's generated page. The user's words and direct manipulation share ONE state — your commands are the same ones drag/resize/remove use.
 - Only reference blockIds that exist in the digest.
 - "뉴스 줄여줘" style requests = adjust_mix (direction less) AND optionally set_block_props with smaller maxItems on matching blocks.
 - Removing a content type = remove_block for each matching block.
@@ -106,7 +106,7 @@ function mapCommand(
 }
 
 export async function interpretEditLlm(
-  runner: CodexRunner,
+  runner: LlmRunner,
   utterance: string,
   digest: SessionDigest
 ): Promise<{ commands: SessionCommand[]; explanation: string } | null> {

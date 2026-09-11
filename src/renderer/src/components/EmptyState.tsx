@@ -12,21 +12,22 @@ const EXAMPLES = [
 
 export default function EmptyState(): ReactElement {
   const { settings } = useAppState();
-  const needsAuth = settings !== null && settings.authMethod === 'none';
+  const offline = settings !== null && settings.authMethod === 'none';
   return (
-    <div className="empty-state">
-      {needsAuth && (
+    <div className="empty-state" data-testid="empty-state">
+      {offline && (
         <div className="empty-auth">
           <span>
-            Codex 계정으로 로그인하면 여러 소스를 <strong>하나의 페이지로 합성</strong>해 드려요.
-            API 키는 필요 없고, 로그인 전에는 오프라인 구성으로 동작해요.
+            지금은 <strong>오프라인 구성</strong>으로 동작해요. AGY CLI(<code>agy</code>)가 있으면
+            여러 소스를 <strong>하나의 페이지로 합성</strong>하는 플래너가 켜져요. API 키는 필요
+            없어요.
           </span>
-          <button onClick={() => void appStore.loginOauth()}>Codex로 로그인</button>
+          <button onClick={() => appStore.openPanel('settings')}>설정에서 확인</button>
         </div>
       )}
       <div className="empty-brand">
-        <h1>GPTBrowser</h1>
-        <p className="empty-tagline">Generated Personal Territory</p>
+        <h1>Prism</h1>
+        <p className="empty-tagline">Intent to One Page</p>
         <p className="empty-sub">
           주소를 입력하는 대신, <strong>원하는 웹을 설명하세요.</strong> 여러 소스를 가로질러
           <strong> 하나의 새 페이지로 합성</strong>해 드려요 — 그리고 그 페이지는 직접 만질 수

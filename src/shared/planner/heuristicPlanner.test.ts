@@ -7,6 +7,7 @@ import type { SourceItem, SourceItemKind } from '@shared/domain/sourceItem';
 import { SourceItemSchema } from '@shared/domain/sourceItem';
 import type { PlanRequest } from './plannerTypes';
 import { heuristicPlan } from './heuristicPlanner';
+import { detectSiloViolations } from './mixInvariants';
 
 function item(id: string, kind: SourceItemKind, extra: Partial<SourceItem> = {}): SourceItem {
   return {
@@ -120,6 +121,31 @@ function multiSourceItems(): SourceItem[] {
     }),
     item('p3', 'post', { sourceName: 'Lobsters', title: '러스트 컴파일러 성능 개선' }),
     item('p4', 'post', { sourceName: 'Lobsters', title: '타입스크립트 모노레포 구성' })
+  ];
+}
+
+/**
+ * Sixteen items from four sources whose titles share NO tokens, so
+ * clusterByTopic finds nothing and the body must be mixed some other way.
+ */
+function flatMultiSourceItems(): SourceItem[] {
+  return [
+    item('v1', 'video', { sourceName: 'IT유튜브', title: '노트북 언박싱' }),
+    item('v2', 'video', { sourceName: 'IT유튜브', title: '키보드 조립기' }),
+    item('v3', 'video', { sourceName: 'IT유튜브', title: '모니터 비교' }),
+    item('v4', 'video', { sourceName: 'IT유튜브', title: '헤드폰 리뷰' }),
+    item('a1', 'article', { sourceName: '매일경제', title: '환율 전망' }),
+    item('a2', 'article', { sourceName: '매일경제', title: '수출 통계' }),
+    item('a3', 'article', { sourceName: '매일경제', title: '유가 흐름' }),
+    item('a4', 'article', { sourceName: '매일경제', title: '고용 지표' }),
+    item('a5', 'article', { sourceName: '조선일보', title: '국회 본회의' }),
+    item('a6', 'article', { sourceName: '조선일보', title: '교육 개편안' }),
+    item('h1', 'headline', { sourceName: '조선일보', title: '폭염 경보' }),
+    item('h2', 'headline', { sourceName: '조선일보', title: '항공 결항' }),
+    item('p1', 'post', { sourceName: 'Hacker News', title: 'Rust async runtime', payload: { community: 'hn' } }),
+    item('p2', 'post', { sourceName: 'Hacker News', title: 'Postgres indexing tips', payload: { community: 'hn' } }),
+    item('p3', 'post', { sourceName: 'Hacker News', title: 'Wasm sandbox design', payload: { community: 'hn' } }),
+    item('p4', 'post', { sourceName: 'Hacker News', title: 'Vim keybinding guide', payload: { community: 'hn' } })
   ];
 }
 
@@ -487,6 +513,54 @@ describe('heuristicPlan cross-source synthesis', () => {
     expect(player).toBeDefined();
     expect(player!.layout.span).toBe(6); // video_player minSpan
     expectCatalogConstraints(plan);
+  });
+
+  it('never devolves into site-silo sections for a normal multi-source request', () => {
+    const skip = new Set(['source_list', 'synthesis_brief', 'video_player', 'video_queue']);
+    for (const items of [multiSourceItems(), flatMultiSourceItems()]) {
+      for (const it2 of items) expect(SourceItemSchema.safeParse(it2).success).toBe(true);
+      const { plan } = heuristicPlan(reqOf(items));
+      expect(detectSiloViolations(plan, items)).toEqual([]);
+      const body = plan.blocks.filter(
+        (b) => b.sourceItemRefs.length > 0 && !skip.has(b.componentType)
+      );
+      expect(body.length).toBeGreaterThan(0);
+      expect(body.some((b) => sourcesOfRefs(plan, items, b).size >= 2)).toBe(true);
+      expect(types(plan)[types(plan).length - 1]).toBe('source_list');
+      expectCatalogConstraints(plan);
+    }
+  });
+
+  it('regression: the silo check does fail a page built as one list per site', () => {
+    const items = flatMultiSourceItems();
+    const silo = (id: string, type: string, refs: string[]): ComponentBlock => ({
+      id,
+      componentType: type,
+      componentVersion: 1,
+      sourceItemRefs: refs,
+      props: {},
+      layout: { span: 6 },
+      locked: false,
+      docked: false,
+      state: {}
+    });
+    const devolved: LayoutPlan = {
+      id: 'plan_silo',
+      version: 1,
+      sessionId: 'sess_1',
+      blocks: [
+        silo('blk_m', 'article_list', ['a1', 'a2', 'a3', 'a4']),
+        silo('blk_c', 'article_list', ['a5', 'a6', 'h1', 'h2']),
+        silo('blk_h', 'community_posts', ['p1', 'p2', 'p3', 'p4']),
+        silo('blk_src', 'source_list', items.map((i) => i.id))
+      ],
+      generationScope: 'full',
+      preservedEdits: { dockedBlockIds: [] },
+      plannerMetadata: { planner: 'heuristic', generatedAt: '2026-08-19T00:00:00.000Z', diagnostics: [] }
+    };
+    const violations = detectSiloViolations(devolved, items);
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations.map((v) => v.kind)).toContain('site-silo');
   });
 
   it('is structurally deterministic for the same request', () => {

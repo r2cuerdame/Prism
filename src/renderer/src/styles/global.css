@@ -1,4 +1,4 @@
-/* ── GPTBrowser design tokens ──────────────────────────────────────── */
+/* ── Prism design tokens ───────────────────────────────────────────── */
 :root {
   --gv-bg: #0c0e13;
   --gv-bg-soft: #11141b;
@@ -1207,6 +1207,143 @@ button.gv-src-chip:hover {
   content: '·';
   color: var(--gv-accent);
   margin-right: 8px;
+}
+
+/* ── Login Rail (temporary, right edge) ────────────────────────────── */
+.auth-rail {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: 300px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 16px 18px;
+  background: var(--gv-bg-soft);
+  border-left: 1px solid var(--gv-border-strong);
+  box-shadow: -18px 0 40px rgba(0, 0, 0, 0.45);
+  animation: rail-in 0.18s ease-out;
+}
+
+@keyframes rail-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.auth-rail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-rail-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gv-warn);
+  flex: none;
+}
+.auth-rail--authenticating .auth-rail-dot {
+  background: var(--gv-accent);
+}
+.auth-rail--authenticated .auth-rail-dot {
+  background: var(--gv-good);
+}
+.auth-rail--failed .auth-rail-dot {
+  background: var(--gv-bad);
+}
+
+.auth-rail-title {
+  margin: 0;
+  font-size: 14px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-rail-close {
+  font-size: 18px;
+  color: var(--gv-text-muted);
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+}
+.auth-rail-close:hover {
+  background: var(--gv-bg-hover);
+  color: var(--gv-text);
+}
+
+.auth-rail-status {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--gv-warn);
+}
+.auth-rail--authenticating .auth-rail-status {
+  color: var(--gv-accent);
+}
+.auth-rail--authenticated .auth-rail-status {
+  color: var(--gv-good);
+}
+
+.auth-rail-origin {
+  margin: 0;
+  font-size: 12px;
+  color: var(--gv-text-dim);
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.auth-rail-note,
+.auth-rail-message {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--gv-text-muted);
+}
+
+.auth-rail-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--gv-bad);
+}
+
+.auth-rail-actions {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.auth-rail-actions button {
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.auth-rail-launch {
+  background: var(--gv-accent);
+  color: var(--gv-on-accent);
+}
+.auth-rail-done {
+  border: 1px solid var(--gv-border-strong);
+  color: var(--gv-text-dim);
+}
+.auth-rail-done:hover:not(:disabled) {
+  color: var(--gv-text);
+  background: var(--gv-bg-hover);
+}
+.auth-rail-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* ── Toast ─────────────────────────────────────────────────────────── */

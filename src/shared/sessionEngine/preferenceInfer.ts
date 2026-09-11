@@ -5,6 +5,7 @@ import type { ComponentBlock } from '@shared/domain/layoutPlan';
 import type { SourceItem, SourceItemKind } from '@shared/domain/sourceItem';
 import { SOURCE_ITEM_KINDS } from '@shared/domain/sourceItem';
 import { newId } from '@shared/domain/ids';
+import { tokenize } from '@shared/planner/crossSource';
 
 const KIND_LABEL: Record<SourceItemKind, string> = {
   video: '영상',
@@ -47,6 +48,10 @@ interface SignalSpec {
   confidence: number;
   interpretation: string;
   explicit?: boolean;
+  scope?: PreferenceSignal['scope'];
+  polarity?: 'negative' | 'positive';
+  origin?: PreferenceSignal['origin'];
+  terms?: string[];
 }
 
 /**
@@ -64,14 +69,47 @@ export function inferPreferenceSignals(
     target: { type: spec.targetType, value: spec.targetValue },
     context: { sessionId: prev.id, intentGoal: latestIntentGoal(prev) },
     interpretation: spec.interpretation,
-    scope: 'session',
+    scope: spec.scope ?? 'session',
     confidence: spec.confidence,
     explicit: spec.explicit ?? false,
+    polarity: spec.polarity,
+    origin: spec.origin,
+    terms: spec.terms,
     createdAt: at,
     ...(spec.explicit ? {} : { expiresAt: plus30Days(at) })
   });
 
   switch (cmd.type) {
+    case 'remove_item': {
+      const item = prev.items[cmd.itemId];
+      if (!item) return [];
+      const terms = [...tokenize(item.title)].slice(0, 10);
+      return [
+        make({
+          kind: 'reject',
+          targetType: 'item',
+          targetValue: item.originalUrl || item.id,
+          confidence: 1.0,
+          explicit: true,
+          polarity: 'negative',
+          origin: 'context_menu',
+          scope: 'global',
+          terms,
+          interpretation: `"${item.title.slice(0, 40)}" 항목을 직접 거부했어요`
+        }),
+        make({
+          kind: 'remove',
+          targetType: 'source',
+          targetValue: item.sourceName,
+          confidence: 0.3,
+          explicit: false,
+          polarity: 'negative',
+          scope: 'session',
+          interpretation: `${item.sourceName} 항목을 제거했어요 — 이 출처를 덜 원할 수 있어요`
+        })
+      ];
+    }
+
     case 'remove_block': {
       const block = findBlock(prev, cmd.blockId);
       if (!block) return [];
@@ -85,6 +123,7 @@ export function inferPreferenceSignals(
             targetType: 'kind',
             targetValue: kind,
             confidence: 0.4,
+            polarity: 'negative',
             interpretation: `${KIND_LABEL[kind]}을(를) 제거했어요 — 이 종류를 덜 원할 수 있어요`
           })
         ),
@@ -94,6 +133,7 @@ export function inferPreferenceSignals(
             targetType: 'source',
             targetValue: sourceName,
             confidence: 0.3,
+            polarity: 'negative',
             interpretation: `${sourceName} 출처를 제거했어요 — 이 출처를 덜 원할 수 있어요`
           })
         )
@@ -111,6 +151,7 @@ export function inferPreferenceSignals(
           targetType: 'component',
           targetValue: block.componentType,
           confidence: 0.7,
+          polarity: 'positive',
           interpretation: '블록을 고정했어요 — 이 구성요소를 계속 보고 싶을 수 있어요'
         }),
         ...kinds.map((kind) =>
@@ -119,6 +160,7 @@ export function inferPreferenceSignals(
             targetType: 'kind',
             targetValue: kind,
             confidence: 0.5,
+            polarity: 'positive',
             interpretation: `${KIND_LABEL[kind]}이(가) 있는 블록을 고정했어요 — 이 종류를 더 원할 수 있어요`
           })
         )
@@ -135,6 +177,8 @@ export function inferPreferenceSignals(
           targetValue: kind,
           confidence: 0.9,
           explicit: true,
+          polarity: cmd.direction === 'more' ? 'positive' : 'negative',
+          origin: 'composer',
           interpretation:
             cmd.direction === 'more'
               ? `${KIND_LABEL[kind]}을(를) 더 원한다고 직접 말했어요`

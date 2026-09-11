@@ -49,7 +49,7 @@ function sideFromPointer(rect: DOMRect, x: number, y: number): SplitSide {
 
 /**
  * The Generated View: one coherent scrollable page projected from validated
- * Session state — GPTBrowser's primary canvas (GOAL.md §2). Dragging a block
+ * Session state — Prism's primary canvas (GOAL.md §2). Dragging a block
  * onto another splits that region instead of merely reordering a list.
  */
 export default function GeneratedView(props: GeneratedViewProps): ReactElement | null {

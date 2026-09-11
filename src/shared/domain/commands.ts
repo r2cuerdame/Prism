@@ -28,6 +28,11 @@ export const SessionCommandSchema = z.discriminatedUnion('type', [
     reason: z.string().optional()
   }),
   z.object({
+    type: z.literal('remove_item'),
+    itemId: z.string(),
+    reason: z.string().optional()
+  }),
+  z.object({
     type: z.literal('dock_block'),
     blockId: z.string(),
     docked: z.boolean()
