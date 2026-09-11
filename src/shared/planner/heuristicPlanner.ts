@@ -185,6 +185,15 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
   // its slots, so that page stays topic-composed.
   const recipeWantsClusters =
     req.recipeShape?.layoutTemplate.some((s) => s.componentType === 'topic_cluster') ?? false;
+  const recipeBodyKinds = new Set<SourceItemKind>();
+  for (const slot of req.recipeShape?.layoutTemplate ?? []) {
+    if (slot.componentType === 'headline_strip' || slot.componentType === 'article_list') {
+      recipeBodyKinds.add('article');
+      recipeBodyKinds.add('headline');
+    } else if (slot.componentType === 'community_posts') {
+      recipeBodyKinds.add('post');
+    }
+  }
   const followRecipe = req.recipeShape !== undefined && !recipeWantsClusters;
   const multiSource = followRecipe
     ? []
@@ -236,9 +245,13 @@ export function heuristicPlan(req: PlanRequest): PlanResult {
     }
   }
 
-  // Kind sections survive only as the fallback for a pool that refuses to
-  // cluster (e.g. a handful of unrelated items).
-  const remaining = clusterBlocks.length > 0 ? [] : bodyPool;
+  // Kind sections normally survive only as the fallback for a pool that
+  // refuses to cluster. A mixed saved Recipe also needs candidates for the
+  // kinds it explicitly kept, even when topic cards consumed the body.
+  const remaining =
+    clusterBlocks.length > 0
+      ? bodyPool.filter((it) => recipeBodyKinds.has(it.kind))
+      : bodyPool;
 
   const remainingByKind: Record<SourceItemKind, SourceItem[]> = {
     video: [],
