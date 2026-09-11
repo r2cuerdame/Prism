@@ -95,6 +95,26 @@ describe('splitRegion', () => {
     expect(splitRegion(stacked, 'a', 'b', 'top')).toBeNull();
   });
 
+  it('rejects moving source_list away from the terminal position', () => {
+    const p = plan([
+      block('a', 'article_list', 12),
+      block('sources', 'source_list', 12)
+    ]);
+
+    expect(splitRegion(p, 'sources', 'a', 'top')).toBeNull();
+  });
+
+  it('rejects drops that would place content after source_list', () => {
+    const p = plan([
+      block('a', 'article_list', 12),
+      block('sources', 'source_list', 12)
+    ]);
+
+    for (const side of ['right', 'bottom'] as const) {
+      expect(splitRegion(p, 'a', 'sources', side)).toBeNull();
+    }
+  });
+
   it('does not mutate the input plan', () => {
     const p = wide();
     const before = JSON.stringify(p);

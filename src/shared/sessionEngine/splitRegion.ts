@@ -35,6 +35,10 @@ export function splitRegion(
 
   const moved = blocks[movedIndex]!;
   const target = blocks[targetIndex]!;
+  if (moved.componentType === 'source_list') return null;
+  if (target.componentType === 'source_list' && (side === 'right' || side === 'bottom')) {
+    return null;
+  }
   const horizontal = side === 'left' || side === 'right';
 
   let nextTarget = target;
