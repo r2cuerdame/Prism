@@ -110,11 +110,12 @@ const initialState: AppState = {
   toast: null
 };
 
-class AppStore {
+export class AppStore {
   private state: AppState = initialState;
   private listeners = new Set<Listener>();
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private persistTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private preferenceRecordQueue: Promise<void> = Promise.resolve();
   private initialized = false;
 
   get = (): AppState => this.state;
@@ -219,7 +220,7 @@ class AppStore {
     if (!opts?.silent) {
       const signals = inferPreferenceSignals(prev, cmd, at);
       if (signals.length > 0) {
-        void window.gptb.prefsRecord(signals).catch(() => undefined);
+        this.recordPreferenceSignals(signals);
       }
     }
     if (cmd.type === 'apply_plan') {
@@ -233,6 +234,22 @@ class AppStore {
       // snapshot per video click would churn the archive on plain viewing.
       this.persistEditsSoon(sessionId);
     }
+  }
+
+  private recordPreferenceSignals(signals: PreferenceSignal[]): void {
+    this.preferenceRecordQueue = this.preferenceRecordQueue.then(async () => {
+      try {
+        await window.gptb.prefsRecord(signals);
+      } catch (error) {
+        console.warn('Failed to record inferred preference signals.', error);
+        return;
+      }
+      try {
+        await this.refreshPrefs();
+      } catch (error) {
+        console.warn('Failed to refresh preference signals after recording.', error);
+      }
+    });
   }
 
   /** Debounced snapshot of the current (edited) state, replacing the last one. */
