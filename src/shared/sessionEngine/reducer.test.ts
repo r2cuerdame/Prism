@@ -398,6 +398,101 @@ describe('apply_plan', () => {
     expect(pruned.provenance.p1).toBeDefined();
     expect(pruned.provenance.p2).toBeUndefined();
   });
+
+  it('inserts preserved docked/locked blocks before source_list when oldIndex is high', () => {
+    const docked = makeBlock('dock1', { docked: true });
+    const locked = makeBlock('lock1', { locked: true });
+    const s = baseState([
+      makeBlock('b1'),
+      makeBlock('b2'),
+      makeBlock('b3'),
+      docked,
+      locked
+    ]);
+    const plan = makePlan(
+      [
+        makeBlock('n1'),
+        makeBlock('src1', { componentType: 'source_list' })
+      ],
+      { id: 'plan2' }
+    );
+    const next = applySessionCommand(s, { type: 'apply_plan', plan }, T1);
+    const blockIds = next.plan?.blocks.map((b) => b.id);
+    expect(blockIds).toEqual(['n1', 'dock1', 'lock1', 'src1']);
+    expect(next.plan?.blocks[next.plan.blocks.length - 1].componentType).toBe('source_list');
+    expect(next.plan?.blocks.filter((b) => b.componentType === 'source_list')).toHaveLength(1);
+  });
+
+  it('updates source_list.sourceItemRefs to include deduplicated refs from preserved blocks in order', () => {
+    const itemPreserved = makeItem('item_preserved');
+    const itemShared = makeItem('item_shared');
+    const itemFresh = makeItem('item_fresh');
+    const docked = makeBlock('dock1', {
+      docked: true,
+      sourceItemRefs: ['item_preserved', 'item_shared']
+    });
+    const s: SessionState = {
+      ...baseState([makeBlock('b1'), docked]),
+      items: {
+        item_preserved: itemPreserved,
+        item_shared: itemShared
+      }
+    };
+    const plan = makePlan(
+      [
+        makeBlock('n1', { sourceItemRefs: ['item_fresh', 'item_shared'] }),
+        makeBlock('src1', {
+          componentType: 'source_list',
+          sourceItemRefs: ['item_fresh', 'item_shared']
+        })
+      ],
+      { id: 'plan2' }
+    );
+    const next = applySessionCommand(
+      s,
+      { type: 'apply_plan', plan, items: [itemFresh] },
+      T1
+    );
+    const sourceListBlock = next.plan?.blocks.find((b) => b.componentType === 'source_list');
+    expect(sourceListBlock).toBeDefined();
+    expect(sourceListBlock?.sourceItemRefs).toEqual([
+      'item_fresh',
+      'item_shared',
+      'item_preserved'
+    ]);
+    expect(next.items.item_fresh).toBeDefined();
+    expect(next.items.item_shared).toBeDefined();
+    expect(next.items.item_preserved).toBeDefined();
+  });
+
+  it('maintains relative order of multiple preserved blocks before source_list without duplicate refs', () => {
+    const p1 = makeItem('p1');
+    const p2 = makeItem('p2');
+    const p3 = makeItem('p3');
+    const f1 = makeItem('f1');
+    const dockA = makeBlock('dockA', { docked: true, sourceItemRefs: ['p1', 'p2'] });
+    const lockB = makeBlock('lockB', { locked: true, sourceItemRefs: ['p2', 'p3'] });
+    const s: SessionState = {
+      ...baseState([makeBlock('b0'), dockA, makeBlock('b2'), lockB]),
+      items: { p1, p2, p3 }
+    };
+    const plan = makePlan(
+      [
+        makeBlock('n0', { sourceItemRefs: ['f1'] }),
+        makeBlock('src', { componentType: 'source_list', sourceItemRefs: ['f1'] })
+      ],
+      { id: 'plan2' }
+    );
+    const next = applySessionCommand(
+      s,
+      { type: 'apply_plan', plan, items: [f1] },
+      T1
+    );
+    expect(next.plan?.blocks.map((b) => b.id)).toEqual(['n0', 'dockA', 'lockB', 'src']);
+    expect(next.plan?.blocks[next.plan.blocks.length - 1].componentType).toBe('source_list');
+    const srcBlock = next.plan?.blocks.find((b) => b.componentType === 'source_list');
+    expect(srcBlock?.sourceItemRefs).toEqual(['f1', 'p1', 'p2', 'p3']);
+  });
 });
 
 describe('play_item', () => {
