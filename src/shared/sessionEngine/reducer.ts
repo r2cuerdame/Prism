@@ -53,10 +53,15 @@ export function applySessionCommand(state: SessionState, cmd: SessionCommand, at
       const idx = findBlockIndex(state.plan, cmd.blockId);
       if (idx < 0 || !state.plan) return state;
       const blocks = state.plan.blocks;
-      const to = clamp(cmd.toIndex, 0, blocks.length - 1);
-      if (to === idx) return state;
+      const moved = blocks[idx]!;
+      if (moved.componentType === 'source_list') return state;
+
       const next = blocks.slice();
-      const [moved] = next.splice(idx, 1);
+      next.splice(idx, 1);
+      const sourceListIndex = next.findIndex((b) => b.componentType === 'source_list');
+      const maxTo = sourceListIndex >= 0 ? sourceListIndex : next.length;
+      const to = clamp(cmd.toIndex, 0, maxTo);
+      if (to === idx) return state;
       next.splice(to, 0, moved);
       return withBlocks(state, next, ts);
     }

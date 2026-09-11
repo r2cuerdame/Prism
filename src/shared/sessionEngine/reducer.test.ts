@@ -130,6 +130,27 @@ describe('move_block', () => {
     const s = baseState();
     expect(applySessionCommand(s, { type: 'move_block', blockId: 'b1', toIndex: 0 }, T1)).toBe(s);
   });
+
+  it('keeps content before a terminal source_list when moved to the bottom', () => {
+    const s = baseState([
+      makeBlock('b1'),
+      makeBlock('b2'),
+      makeBlock('sources', { componentType: 'source_list' })
+    ]);
+    const next = applySessionCommand(s, { type: 'move_block', blockId: 'b1', toIndex: 99 }, T1);
+
+    expect(next.plan?.blocks.map((b) => b.id)).toEqual(['b2', 'b1', 'sources']);
+    expect(next.plan?.blocks.at(-1)?.componentType).toBe('source_list');
+  });
+
+  it('does not move source_list away from the terminal position', () => {
+    const s = baseState([
+      makeBlock('b1'),
+      makeBlock('sources', { componentType: 'source_list' })
+    ]);
+
+    expect(applySessionCommand(s, { type: 'move_block', blockId: 'sources', toIndex: 0 }, T1)).toBe(s);
+  });
 });
 
 describe('resize_block', () => {

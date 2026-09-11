@@ -110,6 +110,19 @@ describe('parseEditRules', () => {
     expect(cmds).toEqual([{ type: 'move_block', blockId: 'b3', toIndex: 2 }]);
   });
 
+  it("'영상 맨 아래로' targets the last content slot before source_list", () => {
+    const state = makeState([
+      block('b1', 'video_player', 8),
+      block('b2', 'article_list', 6),
+      block('b3', 'community_posts', 6),
+      block('sources', 'source_list', 12)
+    ]);
+
+    expect(parseEditRules('영상 맨 아래로', state)).toEqual([
+      { type: 'move_block', blockId: 'b1', toIndex: 2 }
+    ]);
+  });
+
   it("'두번째 고정' → dock_block docked true", () => {
     const cmds = parseEditRules('두번째 고정', makeState());
     expect(cmds).toEqual([{ type: 'dock_block', blockId: 'b2', docked: true }]);

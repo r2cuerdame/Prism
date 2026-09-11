@@ -235,13 +235,15 @@ export function parseEditRules(utterance: string, state: SessionState): SessionC
   const botRel = !topAbs && !botAbs && !topRel && BOTTOM_REL_RE.test(u);
   if (topAbs || botAbs || topRel || botRel) {
     if (targets.length === 0) return null;
+    const hasSourceList = blocks.some((b) => b.componentType === 'source_list');
+    const lastContentIndex = Math.max(0, blocks.length - (hasSourceList ? 2 : 1));
     return targets.map((b) => {
       const idx = blocks.indexOf(b);
       let toIndex: number;
       if (topAbs) toIndex = 0;
-      else if (botAbs) toIndex = Math.max(0, blocks.length - 1);
+      else if (botAbs) toIndex = lastContentIndex;
       else if (topRel) toIndex = Math.max(0, idx - 1);
-      else toIndex = Math.min(blocks.length - 1, idx + 1);
+      else toIndex = Math.min(lastContentIndex, idx + 1);
       return { type: 'move_block', blockId: b.id, toIndex };
     });
   }
