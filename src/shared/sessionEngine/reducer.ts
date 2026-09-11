@@ -387,17 +387,46 @@ function applyPlan(
   newProvenance: Provenance[] | undefined,
   ts: string
 ): SessionState {
-  const blocks = plan.blocks.slice();
+  let blocks = plan.blocks.slice();
+  const preservedBlocks: ComponentBlock[] = [];
 
   // Re-insert preserved blocks the new plan dropped, near their old position.
   // Planners are told not to re-emit them, so both dock (survive regeneration)
   // and lock (content pinned) must be honored here or the block vanishes.
+  // Preserved blocks must never trail source_list.
   if (state.plan) {
     const newIds = new Set(plan.blocks.map((b) => b.id));
     state.plan.blocks.forEach((block, oldIndex) => {
       if ((block.docked || block.locked) && !newIds.has(block.id)) {
-        blocks.splice(Math.min(oldIndex, blocks.length), 0, block);
+        preservedBlocks.push(block);
+        const sourceListIdx = blocks.findIndex((b) => b.componentType === 'source_list');
+        const limit = sourceListIdx >= 0 ? sourceListIdx : blocks.length;
+        blocks.splice(Math.min(oldIndex, limit), 0, block);
       }
+    });
+  }
+
+  // Guarantee source_list remains strictly terminal (parity with mixInvariants)
+  const sourceLists = blocks.filter((b) => b.componentType === 'source_list');
+  if (sourceLists.length > 0) {
+    blocks = [...blocks.filter((b) => b.componentType !== 'source_list'), ...sourceLists];
+  }
+
+  // Update source_list.sourceItemRefs to include refs from preserved blocks (deduplicated, order-preserving)
+  if (preservedBlocks.length > 0 && sourceLists.length > 0) {
+    blocks = blocks.map((block) => {
+      if (block.componentType !== 'source_list') return block;
+      const seen = new Set(block.sourceItemRefs);
+      const updatedRefs = [...block.sourceItemRefs];
+      for (const pb of preservedBlocks) {
+        for (const ref of pb.sourceItemRefs) {
+          if (!seen.has(ref)) {
+            seen.add(ref);
+            updatedRefs.push(ref);
+          }
+        }
+      }
+      return { ...block, sourceItemRefs: updatedRefs };
     });
   }
 
